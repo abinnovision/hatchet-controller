@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" role="img" aria-label="hatchet-controller reads HatchetTenant and HatchetInstance resources, acts on Hatchet with short-lived exchange tokens, and produces a signing keyset, a Hatchet tenant with an API token, and a worker Secret">
+  <title>How hatchet-controller works</title>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M1 1L9 5L1 9Z" fill="#0f9b8e"/></marker>
+    <style>
+      .sans{font-family:ui-sans-serif,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif}
+      .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .t{font-size:16px;font-weight:600;fill:#1f2328}
+      .s{font-size:12px;fill:#59636e}
+      .c{font-size:12px;fill:#0f9b8e}
+    </style>
+  </defs>
+  <g fill="none" stroke="#0f9b8e" stroke-width="2" marker-end="url(#ah)">
+    <path d="M250 90C290 90 286 150 320 150"/>
+    <path d="M250 190C290 190 286 150 320 150"/>
+    <path d="M556 150C596 150 592 62 624 62"/>
+    <path d="M556 150H624"/>
+    <path d="M556 150C596 150 592 238 624 238"/>
+  </g>
+  <rect x="14" y="48" width="236" height="84" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <rect x="14" y="148" width="236" height="84" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <rect x="326" y="90" width="228" height="120" rx="14" fill="#e8f7f5" stroke="#0f9b8e" stroke-width="2"/>
+  <rect x="630" y="24" width="236" height="76" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <rect x="630" y="112" width="236" height="76" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <rect x="630" y="200" width="236" height="76" rx="12" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+  <g class="sans">
+    <text class="t" x="32" y="80">HatchetTenant</text>
+    <text class="s" x="32" y="100">app namespace, owned by the team</text>
+    <text class="t" x="32" y="180">HatchetInstance</text>
+    <text class="s" x="32" y="200">Hatchet namespace, owned by platform</text>
+    <text class="t" x="440" y="140" text-anchor="middle" style="fill:#0f9b8e;font-size:18px;font-weight:700">hatchet-controller</text>
+    <text class="s" x="440" y="164" text-anchor="middle">reconciles tenants and tokens</text>
+    <text class="s" x="440" y="182" text-anchor="middle">with 5 minute exchange tokens</text>
+    <text class="t" x="648" y="55">Signing keyset</text>
+    <text class="s" x="648" y="77">public half trusted by the Hatchet API</text>
+    <text class="t" x="648" y="143">Hatchet tenant</text>
+    <text class="s" x="648" y="165">plus API token, via the Hatchet API</text>
+    <text class="t" x="648" y="225">Worker Secret</text>
+    <text class="s" x="648" y="245">in the app namespace, for envFrom</text>
+  </g>
+  <g class="mono">
+    <text class="c" x="32" y="120">instanceRef</text>
+    <text class="c" x="32" y="220">allowedNamespaces</text>
+    <text class="c" x="648" y="263">HATCHET_CLIENT_*</text>
+  </g>
+</svg>
