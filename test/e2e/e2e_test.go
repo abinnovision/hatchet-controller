@@ -23,6 +23,22 @@ var (
 	kubeconfig string
 )
 
+// manifestImages returns the images referenced by testdata/hatchet.yaml.
+func manifestImages(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, "test", "e2e", "testdata", "hatchet.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var images []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if image, ok := strings.CutPrefix(strings.TrimSpace(line), "image:"); ok {
+			images = append(images, strings.TrimSpace(image))
+		}
+	}
+	return images
+}
+
 func repoRoot() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(file), "..", "..")
@@ -109,7 +125,7 @@ func TestSmoke(t *testing.T) {
 		}
 	})
 	tool(t, "kind", "create", "cluster", "--name", cluster, "--kubeconfig", kubeconfig, "--wait", "2m")
-	for _, image := range []string{img, "postgres:15.6", "ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.112.10"} {
+	for _, image := range append([]string{img}, manifestImages(t)...) {
 		if _, err := tryRun("", "docker", "image", "inspect", image); err != nil {
 			run(t, "", "docker", "pull", image)
 		}
