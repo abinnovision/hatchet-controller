@@ -147,3 +147,7 @@ make test-integration # HATCHET_VERSIONS="v0.84.0 v0.98.12 v0.112.10"
 make test-e2e         # needs Docker; uses kind
 make docker-build
 ```
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE).
