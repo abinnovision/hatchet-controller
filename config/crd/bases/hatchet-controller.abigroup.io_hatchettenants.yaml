@@ -85,7 +85,7 @@ spec:
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
               tokenTTL:
-                default: 720h
+                default: 8760h
                 description: |-
                   TokenTTL is the lifetime of issued API tokens; rotation happens at 2/3 of it.
                   The API server defaults it, so it is set on objects read from the cluster.

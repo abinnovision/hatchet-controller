@@ -117,7 +117,7 @@ spec:
   instanceRef: {name: hatchet, namespace: hatchet}
 ```
 
-Mount the Secret into workers with `envFrom`. Tokens rotate at two thirds of `tokenTTL` (default 720h, minimum 24h). Running workers keep their old token until restarted, so a restarter such as Reloader is recommended. To revoke a leaked token, delete the worker Secret: the controller mints a new one and revokes the old.
+Mount the Secret into workers with `envFrom`. Tokens rotate at two thirds of `tokenTTL` (default 8760h, minimum 24h). Running workers keep their old token until restarted, so a restarter such as Reloader is recommended. To revoke a leaked token, delete the worker Secret: the controller mints a new one and revokes the old.
 
 ## Tenant ID annotation
 

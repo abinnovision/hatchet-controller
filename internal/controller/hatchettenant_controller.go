@@ -32,7 +32,7 @@ const InstanceRefIndex = "spec.instanceRef"
 
 const (
 	// defaultTokenTTL applies when spec.tokenTTL is unset (the API server defaults it).
-	defaultTokenTTL = 720 * time.Hour
+	defaultTokenTTL = 8760 * time.Hour
 	// recheckInterval requeues conditions that may be fixed outside watched objects.
 	recheckInterval = 5 * time.Minute
 	// cacheLagRequeue requeues when the cache lags behind an uncached read.
