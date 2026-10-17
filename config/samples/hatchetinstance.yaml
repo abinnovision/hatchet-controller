@@ -1,0 +1,13 @@
+apiVersion: hatchet-controller.abigroup.io/v1alpha1
+kind: HatchetInstance
+metadata:
+  name: hatchet
+  namespace: hatchet
+spec:
+  apiURL: http://hatchet-api.hatchet.svc:8080
+  serviceUserID: 00000000-0000-0000-0000-000000000000
+  worker:
+    hostPort: hatchet-engine.hatchet.svc:7070
+    tlsStrategy: none
+  allowedNamespaces:
+    from: Same

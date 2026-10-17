@@ -1,0 +1,24 @@
+# Rejects changing or removing the tenant-id annotation once it is set. The first set,
+# and any change while status.tenantID is empty, is allowed. /status is not matched.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: hatchet-controller-tenant-id-guard
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["hatchet-controller.abigroup.io"]
+        apiVersions: ["v1alpha1"]
+        operations: ["UPDATE"]
+        resources: ["hatchettenants"]
+  validations:
+    - expression: >-
+        !has(oldObject.status) || !has(oldObject.status.tenantID) || oldObject.status.tenantID == '' ||
+        !has(oldObject.metadata.annotations) ||
+        !('hatchet-controller.abigroup.io/tenant-id' in oldObject.metadata.annotations) ||
+        (has(object.metadata.annotations) &&
+        'hatchet-controller.abigroup.io/tenant-id' in object.metadata.annotations &&
+        object.metadata.annotations['hatchet-controller.abigroup.io/tenant-id'] ==
+        oldObject.metadata.annotations['hatchet-controller.abigroup.io/tenant-id'])
+      message: the hatchet-controller.abigroup.io/tenant-id annotation cannot be changed or removed once the tenant is bound

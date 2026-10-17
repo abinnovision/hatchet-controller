@@ -1,0 +1,24 @@
+# Strategic merge patch for the Hatchet API Deployment (container name depends on your install).
+# The keyset Secret is created by the controller for the HatchetInstance named "hatchet".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hatchet-api
+  namespace: hatchet
+spec:
+  template:
+    spec:
+      containers:
+        - name: hatchet-api
+          env:
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED
+              value: "true"
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET
+              valueFrom:
+                secretKeyRef:
+                  name: hatchet-exchange-keyset
+                  key: keyset
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER
+              value: hatchet-controller
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE
+              value: hatchet

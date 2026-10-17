@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: hatchet-controller-system
+namePrefix: hatchet-controller-
+
+resources:
+  - ../crd
+  - ../rbac
+  - ../manager

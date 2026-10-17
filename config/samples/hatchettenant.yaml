@@ -1,0 +1,9 @@
+apiVersion: hatchet-controller.abigroup.io/v1alpha1
+kind: HatchetTenant
+metadata:
+  name: my-app
+  namespace: hatchet
+spec:
+  instanceRef:
+    name: hatchet
+    namespace: hatchet

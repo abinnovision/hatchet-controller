@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hatchet
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: hatchet
+spec:
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15.6
+          env:
+            - {name: POSTGRES_USER, value: hatchet}
+            - {name: POSTGRES_PASSWORD, value: hatchet}
+            - {name: POSTGRES_DB, value: hatchet}
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, hatchet]
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: hatchet
+spec:
+  selector: {app: postgres}
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hatchet-lite
+  namespace: hatchet
+spec:
+  selector:
+    matchLabels: {app: hatchet-lite}
+  template:
+    metadata:
+      labels: {app: hatchet-lite}
+    spec:
+      containers:
+        - name: hatchet-lite
+          image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.112.10
+          env:
+            - {name: DATABASE_URL, value: "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"}
+            - {name: SERVER_AUTH_COOKIE_DOMAIN, value: localhost}
+            - {name: SERVER_AUTH_COOKIE_INSECURE, value: "t"}
+            - {name: SERVER_GRPC_INSECURE, value: "t"}
+            - {name: SERVER_GRPC_BIND_ADDRESS, value: "0.0.0.0"}
+            - {name: SERVER_GRPC_BROADCAST_ADDRESS, value: "hatchet-lite.hatchet.svc:7070"}
+            - {name: SERVER_URL, value: "http://localhost:8888"}
+            - {name: SERVER_AUTH_SET_EMAIL_VERIFIED, value: "t"}
+            - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED, value: "t"}
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET
+              valueFrom:
+                secretKeyRef: {name: hatchet-exchange-keyset, key: keyset}
+            - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER, value: hatchet-controller}
+            - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE, value: hatchet}
+          ports:
+            - containerPort: 8888
+            - containerPort: 7070
+          readinessProbe:
+            httpGet: {path: /api/ready, port: 8888}
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hatchet-lite
+  namespace: hatchet
+spec:
+  selector: {app: hatchet-lite}
+  ports:
+    - {name: http, port: 8888}
+    - {name: grpc, port: 7070}
+---
+apiVersion: hatchet-controller.abigroup.io/v1alpha1
+kind: HatchetInstance
+metadata:
+  name: hatchet
+  namespace: hatchet
+spec:
+  apiURL: http://hatchet-lite.hatchet.svc:8888
+  serviceUserID: 6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b
+  worker:
+    hostPort: hatchet-lite.hatchet.svc:7070
+    tlsStrategy: none
+  allowedNamespaces:
+    from: All
+  networkPolicy:
+    engineSelector: {app: hatchet-lite}
+    apiSelector: {app: hatchet-lite}

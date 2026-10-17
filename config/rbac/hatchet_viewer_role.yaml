@@ -1,0 +1,23 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hatchet-viewer-role
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  - apiGroups:
+      - hatchet-controller.abigroup.io
+    resources:
+      - hatchetinstances
+      - hatchettenants
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - hatchet-controller.abigroup.io
+    resources:
+      - hatchetinstances/status
+      - hatchettenants/status
+    verbs:
+      - get

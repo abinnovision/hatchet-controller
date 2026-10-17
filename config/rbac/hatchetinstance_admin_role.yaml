@@ -1,0 +1,24 @@
+# Not aggregated: bind it per Hatchet namespace. Instance admin equals Hatchet root.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hatchetinstance-admin-role
+rules:
+  - apiGroups:
+      - hatchet-controller.abigroup.io
+    resources:
+      - hatchetinstances
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - hatchet-controller.abigroup.io
+    resources:
+      - hatchetinstances/status
+    verbs:
+      - get

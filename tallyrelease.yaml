@@ -1,0 +1,13 @@
+units:
+  ".":
+    release: true
+    tags: [source]
+    versionFiles:
+      - file: config/manager/kustomization.yaml
+        pattern: "newTag: {version}"
+      - file: README.md
+        pattern: "?ref=v{version}"
+
+branches:
+  - name: main
+    line: default

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-a
+---
+apiVersion: hatchet-controller.abigroup.io/v1alpha1
+kind: HatchetTenant
+metadata:
+  name: orders
+  namespace: team-a
+spec:
+  instanceRef: {name: hatchet, namespace: hatchet}

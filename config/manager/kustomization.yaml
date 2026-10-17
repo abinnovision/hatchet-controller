@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - manager.yaml
+
+images:
+  - name: hatchet-controller
+    newName: ghcr.io/abinnovision/hatchet-controller
+    newTag: 0.0.0
