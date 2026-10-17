@@ -11,3 +11,4 @@ units:
 branches:
   - name: main
     line: default
+    channel: beta
