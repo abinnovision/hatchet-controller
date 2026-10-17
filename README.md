@@ -1,21 +1,14 @@
 # hatchet-controller
 
-A Kubernetes controller that lets app teams declare a Hatchet tenant in their namespace and receive a ready-to-use worker credential Secret. It manages Hatchet tenants and API tokens as external resources, in the style of External Secrets or a Crossplane provider. It does not install or operate Hatchet.
-
-Two namespaced CRDs in `hatchet-controller.abigroup.io/v1alpha1`:
-
-- `HatchetInstance`: lives in the Hatchet namespace, points at the Hatchet API, names the service user the controller acts as, and decides which namespaces may use it (`allowedNamespaces`, default `Same`). The controller generates the signing keyset for it.
-- `HatchetTenant`: lives in an app namespace, references an instance with `instanceRef`, and results in a Hatchet tenant plus a worker Secret (`<name>-hatchet` unless `secretName` is set) with `HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_TENANT_ID`, `HATCHET_CLIENT_HOST_PORT`, `HATCHET_CLIENT_SERVER_URL`, `HATCHET_CLIENT_TLS_STRATEGY` and optionally `HATCHET_CLIENT_TLS_ROOT_CA`.
-
-Supported Hatchet versions start at v0.84.0. The controller uses Hatchet control-plane exchange tokens, which are not a documented feature, so pin and test your Hatchet version.
+App teams declare a Hatchet tenant in their own namespace and get back a Secret their workers can use right away. The controller creates the tenant in an existing [Hatchet](https://github.com/hatchet-dev/hatchet) installation, mints an API token for it, and keeps that token rotated. It does not install or operate Hatchet itself.
 
 ## Why
 
-- **Tenants as code.** A team commits one small `HatchetTenant` next to its workers and gets a working credential Secret. No dashboard clicks, no tokens copied between systems.
-- **Topology, not lifecycle.** The controller connects namespaces to an existing Hatchet. Installing and upgrading Hatchet stays with its Helm chart.
-- **Split ownership like Gateway API.** The platform team owns the `HatchetInstance` in the Hatchet namespace and decides which namespaces may attach. App teams own their `HatchetTenant`.
-- **No long-lived admin credential.** Hatchet API tokens are scoped to one tenant and cannot create tenants. The controller generates its own signing key, Hatchet trusts the public half, and every admin call uses an exchange token that expires after 5 minutes.
-- **Plain Kubernetes.** CEL instead of webhooks, owner references instead of cleanup jobs, `Accepted` and `Ready` conditions, and a tenant ID annotation that survives backups and lets you take over existing tenants.
+- **Tenants as code.** A team commits one small `HatchetTenant` next to its workers. No dashboard clicks, no tokens copied between systems.
+- **Topology, not lifecycle.** The controller connects namespaces to a Hatchet you already run. Installing and upgrading Hatchet stays with its Helm chart.
+- **Split ownership, like Gateway API.** The platform team owns the `HatchetInstance` and decides which namespaces may attach. App teams own their `HatchetTenant`.
+- **No long-lived admin credential.** The controller generates its own signing key and Hatchet trusts the public half. Every admin call uses an exchange token that expires after 5 minutes.
+- **Plain Kubernetes.** CEL validation instead of webhooks, owner references instead of cleanup jobs, and the usual `Accepted` and `Ready` conditions.
 
 ## How it works
 
@@ -26,77 +19,37 @@ Supported Hatchet versions start at v0.84.0. The controller uses Hatchet control
   </picture>
 </p>
 
-For each `HatchetInstance`, the controller generates a signing keyset and publishes its public half in the Hatchet namespace, where the Hatchet API reads it at startup. For each `HatchetTenant` it checks that the instance allows the namespace, creates the Hatchet tenant (or binds an existing one), mints an API token and writes the worker Secret. Tokens rotate at two thirds of their lifetime, and deleting the `HatchetTenant` revokes them. Hatchet keeps the tenant, because its API has no delete.
+There are two namespaced resources in `hatchet-controller.abigroup.io/v1alpha1`:
 
-## Install
+- **`HatchetInstance`** lives in the Hatchet namespace. It points at the Hatchet API, names the Hatchet user the controller acts as, and lists which namespaces may use it (`allowedNamespaces`, default `Same`). The controller generates a signing keyset for it and publishes the public half as a Secret, which the Hatchet API reads at startup.
+- **`HatchetTenant`** lives in an app namespace and references an instance with `instanceRef`. The controller checks that the instance allows the namespace, creates the Hatchet tenant (or binds an existing one), mints an API token and writes the worker Secret.
 
-Use the kustomize remote base. The image tag is set in the base and bumped on every release.
+The worker Secret is named `<name>-hatchet` unless `secretName` is set, and contains `HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_TENANT_ID`, `HATCHET_CLIENT_HOST_PORT`, `HATCHET_CLIENT_SERVER_URL`, `HATCHET_CLIENT_TLS_STRATEGY` and, if configured, `HATCHET_CLIENT_TLS_ROOT_CA`.
+
+## Getting started
+
+Requires Hatchet v0.84.0 or newer. The controller relies on Hatchet's control-plane exchange tokens, which are not a documented feature, so pin your Hatchet version and test upgrades.
+
+With GitOps you can apply all of the steps below in one sync. The Hatchet API waits for the keyset Secret before it starts.
+
+### 1. Install the controller
 
 ```yaml
 resources:
   - github.com/abinnovision/hatchet-controller//config/default?ref=v0.0.0
 ```
 
-The base installs into `hatchet-controller-system` but does not render the Namespace. Standalone users must create it (Argo CD `CreateNamespace=true`, Flux, or your own Namespace resource) and should apply the `pod-security.kubernetes.io/enforce: restricted` label, which the manager satisfies. To run it next to Hatchet, set `namespace: hatchet` in your kustomization; no Namespace is needed then. The keyset Secret always lives in the Hatchet namespace.
+The base installs into `hatchet-controller-system` but does not create that namespace. Create it yourself (Argo CD `CreateNamespace=true`, Flux, or a Namespace resource) and label it `pod-security.kubernetes.io/enforce: restricted`; the manager meets that profile. To run the controller next to Hatchet instead, set `namespace: hatchet` in your kustomization.
 
-### Optional components
+### 2. Create a service user in Hatchet
 
-```yaml
-components:
-  - github.com/abinnovision/hatchet-controller//config/components/networkpolicy?ref=v0.0.0
-  - github.com/abinnovision/hatchet-controller//config/components/tenant-id-guard?ref=v0.0.0
-```
-
-- `networkpolicy`: grants the controller NetworkPolicy RBAC and enables `--enable-network-policy`, so instances that set `spec.networkPolicy` get an egress policy for worker pods labeled `hatchet-controller.abigroup.io/worker: "true"`. An egress policy isolates the selected pods: they lose all other egress unless other policies allow it. Without the component such tenants report `Ready=False/Forbidden`.
-- `tenant-id-guard`: a ValidatingAdmissionPolicy that rejects changing or removing the `tenant-id` annotation once `status.tenantID` is set. The first set, and changes while the tenant is unbound, are allowed. `/status` is not matched. Requires Kubernetes 1.30 or newer.
-
-### Beta releases
-
-Every merge to `main` with unreleased changes publishes a beta image. Stable releases happen when the release PR is merged.
-
-| | Beta | Stable |
-| --- | --- | --- |
-| Trigger | merge to `main` | merge of the release PR |
-| Version | `<next>-beta.<N>`, N counts commits since the last stable release | `<version>` |
-| Image tags | `<next>-beta.<N>`, `prerelease-<next>-beta.<N>`, `sha-<short>` | `<version>`, `release-<version>`, `sha-<short>`, `latest` |
-| Git tag and GitHub release | none | `v<version>` |
-| Image tag in `config/manager` | unchanged | bumped to `<version>` |
-
-Betas have no git tag, so pin the base to the commit the image was built from. The `sha-<short>` image tag names that commit by its first 7 characters. The CRDs come from the base, so keep both at the same commit:
-
-```yaml
-resources:
-  - github.com/abinnovision/hatchet-controller//config/default?ref=<short>
-images:
-  - name: ghcr.io/abinnovision/hatchet-controller
-    newTag: sha-<short>
-```
-
-Betas run the full test suite but may change the `v1alpha1` API without notice. Use them for staging, not production.
-
-## Hatchet wiring
-
-The controller signs short-lived JWTs with a key it generates, and Hatchet must trust the public half. Patch the Hatchet API Deployment (container name depends on your install, see `config/samples/hatchet-api-patch.yaml`):
-
-```yaml
-env:
-  - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED, value: "true"}
-  - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET
-    valueFrom:
-      secretKeyRef: {name: <instance>-exchange-keyset, key: keyset}
-  - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER, value: hatchet-controller}
-  - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE, value: hatchet}
-```
-
-The `secretKeyRef` is not optional, so the API container starts once the controller has created the keyset. Everything can sync together.
-
-The controller acts as an existing Hatchet user. Seed one with `ADMIN_EMAIL=hatchet-controller@<domain>` and a random discarded `ADMIN_PASSWORD`, then drop the password and keep `ADMIN_EMAIL`. Find its UUID:
+The controller acts as a regular Hatchet user. Seed one with `ADMIN_EMAIL=hatchet-controller@<domain>` and a random `ADMIN_PASSWORD` you throw away. Afterwards remove `ADMIN_PASSWORD` and keep `ADMIN_EMAIL`. Look up the user's UUID:
 
 ```sh
 psql "$DATABASE_URL" -tAc "SELECT id FROM \"User\" WHERE email='<email>' AND \"deletedAt\" IS NULL"
 ```
 
-## Quickstart
+### 3. Create the instance
 
 ```yaml
 apiVersion: hatchet-controller.abigroup.io/v1alpha1
@@ -109,7 +62,27 @@ spec:
     hostPort: hatchet-engine.hatchet.svc:7070
     tlsStrategy: none
   allowedNamespaces: {from: Selector, selector: {matchLabels: {hatchet-access: "true"}}}
----
+```
+
+The controller creates the Secret `<instance>-exchange-keyset` in the same namespace.
+
+### 4. Let Hatchet trust the controller
+
+Add these variables to the Hatchet API container. The container name depends on your install; `config/samples/hatchet-api-patch.yaml` has a full patch.
+
+```yaml
+env:
+  - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED, value: "true"}
+  - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET
+    valueFrom:
+      secretKeyRef: {name: <instance>-exchange-keyset, key: keyset}
+  - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER, value: hatchet-controller}
+  - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE, value: hatchet}
+```
+
+### 5. Create a tenant
+
+```yaml
 apiVersion: hatchet-controller.abigroup.io/v1alpha1
 kind: HatchetTenant
 metadata: {name: my-app, namespace: my-app}
@@ -117,15 +90,21 @@ spec:
   instanceRef: {name: hatchet, namespace: hatchet}
 ```
 
-Mount the Secret into workers with `envFrom`. Tokens rotate at two thirds of `tokenTTL` (default 8760h, minimum 24h). Running workers keep their old token until restarted, so a restarter such as Reloader is recommended. To revoke a leaked token, delete the worker Secret: the controller mints a new one and revokes the old.
+Load the resulting `my-app-hatchet` Secret into your workers with `envFrom`.
 
-## Tenant ID annotation
+## Tokens
 
-The annotation `hatchet-controller.abigroup.io/tenant-id` binds a `HatchetTenant` to a Hatchet tenant. After creating the tenant, the controller writes the ID into the annotation, so a restore from a backup that drops status does not create a second tenant. Once bound, a differing value gives `Ready=False/TenantIDConflict` and no action; a removed annotation is restored from status.
+Tokens rotate at two thirds of `tokenTTL` (default 8760h, allowed range 24h to 8760h). Running workers keep their old token until they restart, so with the default they have about four months after a rotation to pick up the new one. If you lower `tokenTTL`, use a restarter such as Reloader.
 
-### Taking over an existing tenant
+To replace a leaked token, delete the worker Secret. The controller mints a new token and revokes the old one.
 
-Set the annotation before the first apply to inherit an existing tenant instead of creating a new one:
+## Existing tenants and the tenant ID annotation
+
+Once a tenant is created, the controller writes its ID to the annotation `hatchet-controller.abigroup.io/tenant-id`. If you restore the `HatchetTenant` from a backup without status, the annotation keeps it bound to the same tenant instead of creating a second one. The ID is also in `status.tenantID` and in the `TenantCreated` event.
+
+After binding, the annotation is fixed. A different value gives `Ready=False/TenantIDConflict` and the controller does nothing, and a removed annotation is restored from status.
+
+To take over a tenant that already exists, set the annotation before the first apply:
 
 ```yaml
 apiVersion: hatchet-controller.abigroup.io/v1alpha1
@@ -139,46 +118,75 @@ spec:
   instanceRef: {name: hatchet, namespace: hatchet}
 ```
 
-The controller accepts the tenant only if:
+The controller accepts it only if the value is a valid UUID and the service user is a member of that tenant. Tenants created by the controller have the slug `<namespace>.<name>-<uid8>` and can only be taken over from the same namespace. Tenants created by hand in Hatchet can be taken over from any namespace the instance allows, once a Hatchet admin adds the service user as a member; their ID is shown in the Hatchet UI. Anything else reports `Ready=False/InheritRejected`.
 
-- the value is a valid UUID and the service user can read the tenant (it must be a member);
-- for a tenant created by this controller (slug `<namespace>.<name>-<uid8>`), the slug's namespace equals the `HatchetTenant`'s namespace.
+## Optional components
 
-Tenants created manually in Hatchet can be inherited by any namespace the instance allows, once a Hatchet admin adds the service user as a member. Otherwise the tenant reports `Ready=False/InheritRejected`.
+```yaml
+components:
+  - github.com/abinnovision/hatchet-controller//config/components/networkpolicy?ref=v0.0.0
+  - github.com/abinnovision/hatchet-controller//config/components/tenant-id-guard?ref=v0.0.0
+```
 
-The tenant ID of a controller-created tenant is in `status.tenantID`, the annotation, and the `TenantCreated` event; for manual tenants, take it from the Hatchet UI.
+- **`networkpolicy`** gives the controller NetworkPolicy permissions and turns on `--enable-network-policy`. Instances that set `spec.networkPolicy` then get an egress policy for worker pods labeled `hatchet-controller.abigroup.io/worker: "true"`. That policy isolates those pods, so all other egress is blocked unless another policy allows it. Without the component, such tenants report `Ready=False/Forbidden`.
+- **`tenant-id-guard`** is a ValidatingAdmissionPolicy that blocks changing or removing the tenant ID annotation once `status.tenantID` is set. Setting it for the first time, or changing it while the tenant is unbound, is allowed. The `/status` subresource is not matched. Requires Kubernetes 1.30 or newer.
 
 ## RBAC
 
-| ClusterRole | Aggregation | Grants |
+| ClusterRole | Aggregated to | Grants |
 | --- | --- | --- |
 | `hatchet-controller-hatchettenant-editor-role` | admin, edit | manage `hatchettenants` |
 | `hatchet-controller-hatchet-viewer-role` | view | read both CRDs |
 | `hatchet-controller-hatchetinstance-admin-role` | none | manage `hatchetinstances`; bind it per Hatchet namespace |
 
-Instance admin equals Hatchet root, so it is not aggregated. Wildcard namespace roles, Argo CD AppProjects or Capsule can still grant instance creation.
+Managing a `HatchetInstance` is effectively Hatchet root access, so that role is not aggregated. Wildcard namespace roles, Argo CD AppProjects or Capsule can still grant it, so check those.
 
-## Security notes
+## Security
 
-- The controller has cluster-wide Secret read and write to create worker Secrets in tenant namespaces. It never deletes Secrets. A compromise reaches beyond Hatchet and equals Hatchet admin, so the image is distroless and runs as non-root with a read-only root filesystem.
-- The private signing key lives in the Hatchet namespace and can impersonate any Hatchet user. Restrict Secret read there and enable etcd encryption.
-- Any allowed namespace can inherit a manual tenant the service user is a member of. Limit `allowedNamespaces` accordingly.
-- Limit tenant counts with a ResourceQuota on `count/hatchettenants.hatchet-controller.abigroup.io`.
-- Metrics are disabled by default. Enable them with `--metrics-bind-address` and protect the endpoint.
-- The DNS egress rule in the generated NetworkPolicy allows port 53 to any destination.
-- `spec.apiURL` redirects are not followed.
+- The controller can read and write Secrets cluster-wide, because it writes worker Secrets into tenant namespaces. It never deletes Secrets. A compromised controller means Hatchet admin access and more, which is why the image is distroless and runs as non-root with a read-only root filesystem.
+- The private signing key lives in the Hatchet namespace and can impersonate any Hatchet user. Restrict Secret access there and enable etcd encryption.
+- Any allowed namespace can take over a manually created tenant the service user is a member of. Keep `allowedNamespaces` tight.
+- Cap the number of tenants with a ResourceQuota on `count/hatchettenants.hatchet-controller.abigroup.io`.
+- Metrics are off by default. If you enable them with `--metrics-bind-address`, protect the endpoint.
+- The DNS rule in the generated NetworkPolicy allows port 53 to any destination.
+- The controller does not follow redirects from `spec.apiURL`.
 
-## Deletion, restore and limits
+## Deletion and recovery
 
-- Deleting a `HatchetTenant` revokes its tokens and removes the worker Secret. The Hatchet tenant itself is retained, because Hatchet has no tenant delete API.
-- Deleting a `HatchetInstance` removes the signing key and keyset. Hatchet blocks on the missing `secretKeyRef` at its next restart until exchange tokens are disabled, and a recreated instance generates a new key that requires an API restart. Tenants then show `Accepted=False/InstanceNotFound`, keep their Secrets until expiry, and release their finalizers without revoking. Guard GitOps-managed instances with `argocd.argoproj.io/sync-options: Delete=false` or `kustomize.toolkit.fluxcd.io/prune: disabled`.
-- If the controller is uninstalled while CRs remain, clear finalizers with `kubectl patch <resource> --type merge -p '{"metadata":{"finalizers":null}}'`.
-- `RevocationFailed` appears after 10 minutes of failed token revocation.
-- Losing namespace consent sets `Accepted=False` but keeps the existing Secret and token.
-- Tokens issued before a restore expire naturally.
-- Removing `spec.networkPolicy` leaves existing policies in place until the tenant is deleted.
-- A failed non-atomic tenant create can leave a tenant without the service user as member. The tenant then reports `SlugTaken`; recreate the CR.
-- No Hatchet Cloud support.
+- **Deleting a `HatchetTenant`** revokes its tokens and removes the worker Secret. The Hatchet tenant stays, because Hatchet has no API to delete tenants.
+- **Deleting a `HatchetInstance`** removes the signing key and keyset. On its next restart the Hatchet API waits for the missing Secret until you disable exchange tokens. A recreated instance gets a new key, which needs an API restart. Meanwhile tenants show `Accepted=False/InstanceNotFound`, keep their Secrets until the tokens expire, and drop their finalizers without revoking. Protect GitOps-managed instances with `argocd.argoproj.io/sync-options: Delete=false` or `kustomize.toolkit.fluxcd.io/prune: disabled`.
+- **Removing a namespace from `allowedNamespaces`** sets `Accepted=False`, but the existing Secret and token stay.
+- **Removing `spec.networkPolicy`** leaves existing policies in place until the tenant is deleted.
+- **After a restore**, tokens issued before it expire on their own.
+- **If revocation keeps failing**, the tenant shows `RevocationFailed` after 10 minutes.
+- **If tenant creation fails halfway**, the tenant can exist without the service user as a member. The `HatchetTenant` then reports `SlugTaken`; recreate it.
+- **If you uninstall the controller** while resources remain, clear their finalizers with `kubectl patch <resource> --type merge -p '{"metadata":{"finalizers":null}}'`.
+
+Hatchet Cloud is not supported.
+
+## Releases
+
+Every merge to `main` with unreleased changes publishes a beta image. A stable release happens when the release PR is merged.
+
+| | Beta | Stable |
+| --- | --- | --- |
+| Trigger | merge to `main` | merge of the release PR |
+| Version | `<next>-beta.<N>`, N counts commits since the last stable release | `<version>` |
+| Image tags | `<next>-beta.<N>`, `prerelease-<next>-beta.<N>`, `sha-<short>` | `<version>`, `release-<version>`, `sha-<short>`, `latest` |
+| Git tag and GitHub release | none | `v<version>` |
+| Image tag in `config/manager` | unchanged | bumped to `<version>` |
+
+Betas have no git tag. To use one, pin the base to the commit the image was built from and use the matching `sha-<short>` image tag (first 7 characters of the commit). The CRDs come from the base, so both must point at the same commit:
+
+```yaml
+resources:
+  - github.com/abinnovision/hatchet-controller//config/default?ref=<short>
+images:
+  - name: ghcr.io/abinnovision/hatchet-controller
+    newTag: sha-<short>
+```
+
+Betas pass the full test suite but may change the `v1alpha1` API without notice. Use them for staging, not production.
 
 ## Development
 
