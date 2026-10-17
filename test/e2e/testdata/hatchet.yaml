@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:15.6
+          image: postgres:15.19
           env:
             - {name: POSTGRES_USER, value: hatchet}
             - {name: POSTGRES_PASSWORD, value: hatchet}
