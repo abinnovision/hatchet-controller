@@ -1,7 +1,9 @@
 TOOL = go tool -modfile=tools/go.mod
 IMG ?= hatchet-controller:dev
 GOLANG_VERSION ?= $(shell awk '/^golang/ {print $$2}' .tool-versions)
-HATCHET_VERSIONS ?= v0.84.0 v0.98.12 v0.112.10
+HATCHET_LATEST := $(shell sed -n 's|.*hatchet-lite:\(.*\)|\1|p' test/e2e/testdata/hatchet.yaml)
+# The floor and the middle version are pinned; the newest follows the e2e manifest, which Dependabot updates.
+HATCHET_VERSIONS ?= v0.84.0 v0.98.12 $(HATCHET_LATEST)
 
 .PHONY: all
 all: build
