@@ -9,6 +9,25 @@ Two namespaced CRDs in `hatchet-controller.abigroup.io/v1alpha1`:
 
 Supported Hatchet versions start at v0.84.0. The controller uses Hatchet control-plane exchange tokens, which are not a documented feature, so pin and test your Hatchet version.
 
+## Why
+
+- **Tenants as code.** A team commits one small `HatchetTenant` next to its workers and gets a working credential Secret. No dashboard clicks, no tokens copied between systems.
+- **Topology, not lifecycle.** The controller connects namespaces to an existing Hatchet. Installing and upgrading Hatchet stays with its Helm chart.
+- **Split ownership like Gateway API.** The platform team owns the `HatchetInstance` in the Hatchet namespace and decides which namespaces may attach. App teams own their `HatchetTenant`.
+- **No long-lived admin credential.** Hatchet API tokens are scoped to one tenant and cannot create tenants. The controller generates its own signing key, Hatchet trusts the public half, and every admin call uses an exchange token that expires after 5 minutes.
+- **Plain Kubernetes.** CEL instead of webhooks, owner references instead of cleanup jobs, `Accepted` and `Ready` conditions, and a tenant ID annotation that survives backups and lets you take over existing tenants.
+
+## How it works
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/how-it-works-dark.svg">
+    <img src="docs/assets/how-it-works-light.svg" alt="How hatchet-controller works">
+  </picture>
+</p>
+
+For each `HatchetInstance`, the controller generates a signing keyset and publishes its public half in the Hatchet namespace, where the Hatchet API reads it at startup. For each `HatchetTenant` it checks that the instance allows the namespace, creates the Hatchet tenant (or binds an existing one), mints an API token and writes the worker Secret. Tokens rotate at two thirds of their lifetime, and deleting the `HatchetTenant` revokes them. Hatchet keeps the tenant, because its API has no delete.
+
 ## Install
 
 Use the kustomize remote base. The image tag is set in the base and bumped on every release.
@@ -30,6 +49,30 @@ components:
 
 - `networkpolicy`: grants the controller NetworkPolicy RBAC and enables `--enable-network-policy`, so instances that set `spec.networkPolicy` get an egress policy for worker pods labeled `hatchet-controller.abigroup.io/worker: "true"`. An egress policy isolates the selected pods: they lose all other egress unless other policies allow it. Without the component such tenants report `Ready=False/Forbidden`.
 - `tenant-id-guard`: a ValidatingAdmissionPolicy that rejects changing or removing the `tenant-id` annotation once `status.tenantID` is set. The first set, and changes while the tenant is unbound, are allowed. `/status` is not matched. Requires Kubernetes 1.30 or newer.
+
+### Beta releases
+
+Every merge to `main` with unreleased changes publishes a beta image. Stable releases happen when the release PR is merged.
+
+| | Beta | Stable |
+| --- | --- | --- |
+| Trigger | merge to `main` | merge of the release PR |
+| Version | `<next>-beta.<N>`, N counts commits since the last stable release | `<version>` |
+| Image tags | `<next>-beta.<N>`, `prerelease-<next>-beta.<N>`, `sha-<short>` | `<version>`, `release-<version>`, `sha-<short>`, `latest` |
+| Git tag and GitHub release | none | `v<version>` |
+| Image tag in `config/manager` | unchanged | bumped to `<version>` |
+
+Betas have no git tag, so pin the base to the commit the image was built from. The `sha-<short>` image tag names that commit by its first 7 characters. The CRDs come from the base, so keep both at the same commit:
+
+```yaml
+resources:
+  - github.com/abinnovision/hatchet-controller//config/default?ref=<short>
+images:
+  - name: ghcr.io/abinnovision/hatchet-controller
+    newTag: sha-<short>
+```
+
+Betas run the full test suite but may change the `v1alpha1` API without notice. Use them for staging, not production.
 
 ## Hatchet wiring
 
