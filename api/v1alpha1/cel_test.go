@@ -86,12 +86,12 @@ func requireRejected(t *testing.T, err error, msg string) {
 	}
 }
 
-func TestTenantDefaultsTokenTTLTo720h(t *testing.T) {
+func TestTenantDefaultsTokenTTLTo8760h(t *testing.T) {
 	requireEnv(t)
 	tenant := newTenant(uniqueName("defaults"))
 	create(t, tenant)
-	if tenant.Spec.TokenTTL == nil || tenant.Spec.TokenTTL.Duration != 720*time.Hour {
-		t.Fatalf("tokenTTL = %v, want 720h", tenant.Spec.TokenTTL)
+	if tenant.Spec.TokenTTL == nil || tenant.Spec.TokenTTL.Duration != 8760*time.Hour {
+		t.Fatalf("tokenTTL = %v, want 8760h", tenant.Spec.TokenTTL)
 	}
 }
 

@@ -38,7 +38,7 @@ type HatchetTenantSpec struct {
 
 	// TokenTTL is the lifetime of issued API tokens; rotation happens at 2/3 of it.
 	// The API server defaults it, so it is set on objects read from the cluster.
-	// +kubebuilder:default="720h"
+	// +kubebuilder:default="8760h"
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:MaxLength=64
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('24h')",message="tokenTTL must be at least 24h"
