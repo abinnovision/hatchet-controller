@@ -1,5 +1,7 @@
 ARG golang_version
-FROM golang:${golang_version} AS build
+FROM --platform=$BUILDPLATFORM golang:${golang_version} AS build
+ARG TARGETOS
+ARG TARGETARCH
 ARG build_version=dev
 ARG build_commit=none
 WORKDIR /src
@@ -8,7 +10,7 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY api/ api/
 COPY internal/ internal/
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags "-s -w -X main.version=${build_version} -X main.commit=${build_commit}" \
     -o /manager ./cmd
 
