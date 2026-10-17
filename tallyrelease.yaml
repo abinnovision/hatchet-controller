@@ -1,6 +1,7 @@
 units:
   ".":
     release: true
+    initialVersion: "0.1.0"
     tags: [source]
     versionFiles:
       - file: config/manager/kustomization.yaml
