@@ -94,7 +94,7 @@ Load the resulting `my-app-hatchet` Secret into your workers with `envFrom`.
 
 ## Tokens
 
-Tokens rotate at two thirds of `tokenTTL` (default 720h, allowed range 24h to 8760h). Running workers keep their old token until they restart, so use a restarter such as Reloader.
+Tokens rotate at two thirds of `tokenTTL` (default 8760h, allowed range 24h to 8760h). Running workers keep their old token until they restart, so with the default they have about four months after a rotation to pick up the new one. If you lower `tokenTTL`, use a restarter such as Reloader.
 
 To replace a leaked token, delete the worker Secret. The controller mints a new token and revokes the old one.
 
