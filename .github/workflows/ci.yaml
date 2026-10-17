@@ -37,3 +37,4 @@ jobs:
       releases: ${{ needs.ci.outputs.releases }}
       image: hatchet-controller
       ghcr: true
+      platforms: hatchet-controller,cross,linux/amd64,linux/arm64

@@ -39,7 +39,7 @@ resources:
   - github.com/abinnovision/hatchet-controller//config/default?ref=v0.0.0
 ```
 
-The base installs into `hatchet-controller-system` but does not create that namespace. Create it yourself (Argo CD `CreateNamespace=true`, Flux, or a Namespace resource) and label it `pod-security.kubernetes.io/enforce: restricted`; the manager meets that profile. To run the controller next to Hatchet instead, set `namespace: hatchet` in your kustomization.
+Images are published for `linux/amd64` and `linux/arm64`. The base installs into `hatchet-controller-system` but does not create that namespace. Create it yourself (Argo CD `CreateNamespace=true`, Flux, or a Namespace resource) and label it `pod-security.kubernetes.io/enforce: restricted`; the manager meets that profile. To run the controller next to Hatchet instead, set `namespace: hatchet` in your kustomization.
 
 ### 2. Create a service user in Hatchet
 
