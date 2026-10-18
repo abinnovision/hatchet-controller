@@ -26,9 +26,20 @@ There are two namespaced resources in `hatchet-controller.abigroup.io/v1alpha1`:
 
 The worker Secret is named `<name>-hatchet` unless `secretName` is set, and contains `HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_TENANT_ID`, `HATCHET_CLIENT_HOST_PORT`, `HATCHET_CLIENT_SERVER_URL`, `HATCHET_CLIENT_TLS_STRATEGY` and, if configured, `HATCHET_CLIENT_TLS_ROOT_CA`.
 
-## Getting started
+## Compatibility
 
-Requires Hatchet v0.84.0 or newer. The controller relies on Hatchet's control-plane exchange tokens, which are not a documented feature, so pin your Hatchet version and test upgrades.
+Requires self-hosted Hatchet v0.84.0 or newer. Hatchet Cloud is not supported.
+
+The controller authenticates through Hatchet's control-plane exchange tokens. They are an internal Hatchet feature with no public documentation and no stability promise, so any Hatchet release can change or remove them without notice.
+
+What we test on every change:
+
+- Integration tests against a real Hatchet at v0.84.0, v0.98.12 and the newest version we track (currently v0.112.10, kept current by Dependabot).
+- An end-to-end test that deploys Hatchet and the controller into a kind cluster and checks that a tenant becomes Ready and gets its worker Secret.
+
+Versions outside that list may work but are not tested. Pin your Hatchet version and try upgrades outside production first.
+
+## Getting started
 
 With GitOps you can apply all of the steps below in one sync. The Hatchet API waits for the keyset Secret before it starts.
 
@@ -161,8 +172,6 @@ Managing a `HatchetInstance` is effectively Hatchet root access, so that role is
 - **If revocation keeps failing**, the tenant shows `RevocationFailed` after 10 minutes.
 - **If tenant creation fails halfway**, the tenant can exist without the service user as a member. The `HatchetTenant` then reports `SlugTaken`; recreate it.
 - **If you uninstall the controller** while resources remain, clear their finalizers with `kubectl patch <resource> --type merge -p '{"metadata":{"finalizers":null}}'`.
-
-Hatchet Cloud is not supported.
 
 ## Releases
 
