@@ -36,7 +36,7 @@ With GitOps you can apply all of the steps below in one sync. The Hatchet API wa
 
 ```yaml
 resources:
-  - github.com/abinnovision/hatchet-controller//config/default?ref=v0.0.0
+  - github.com/abinnovision/hatchet-controller//config/default?ref=v0.1.0
 ```
 
 Images are published for `linux/amd64` and `linux/arm64`. The base installs into `hatchet-controller-system` but does not create that namespace. Create it yourself (Argo CD `CreateNamespace=true`, Flux, or a Namespace resource) and label it `pod-security.kubernetes.io/enforce: restricted`; the manager meets that profile. To run the controller next to Hatchet instead, set `namespace: hatchet` in your kustomization.
@@ -124,8 +124,8 @@ The controller accepts it only if the value is a valid UUID and the service user
 
 ```yaml
 components:
-  - github.com/abinnovision/hatchet-controller//config/components/networkpolicy?ref=v0.0.0
-  - github.com/abinnovision/hatchet-controller//config/components/tenant-id-guard?ref=v0.0.0
+  - github.com/abinnovision/hatchet-controller//config/components/networkpolicy?ref=v0.1.0
+  - github.com/abinnovision/hatchet-controller//config/components/tenant-id-guard?ref=v0.1.0
 ```
 
 - **`networkpolicy`** gives the controller NetworkPolicy permissions and turns on `--enable-network-policy`. Instances that set `spec.networkPolicy` then get an egress policy for worker pods labeled `hatchet-controller.abigroup.io/worker: "true"`. That policy isolates those pods, so all other egress is blocked unless another policy allows it. Without the component, such tenants report `Ready=False/Forbidden`.

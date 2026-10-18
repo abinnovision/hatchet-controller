@@ -7,4 +7,4 @@ resources:
 images:
   - name: hatchet-controller
     newName: ghcr.io/abinnovision/hatchet-controller
-    newTag: 0.0.0
+    newTag: 0.1.0
