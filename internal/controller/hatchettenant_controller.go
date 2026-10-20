@@ -165,7 +165,7 @@ func (r *HatchetTenantReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, nil
 }
 
-// reconcile runs the Accepted, binding, token, NetworkPolicy and webhook steps.
+// reconcile runs the Accepted, binding, token, NetworkPolicy, webhook and member steps.
 func (r *HatchetTenantReconciler) reconcile(ctx context.Context, tenant *hatchetv1alpha1.HatchetTenant,
 	instance *hatchetv1alpha1.HatchetInstance) (ctrl.Result, error) {
 	if err := r.accept(ctx, tenant, instance); err != nil {
@@ -195,9 +195,19 @@ func (r *HatchetTenantReconciler) reconcile(ctx context.Context, tenant *hatchet
 		}
 	}
 
-	// A webhook failure does not block the worker Secret above.
-	if err := r.ensureWebhooks(ctx, hc, tenant, instance); err != nil {
-		return ctrl.Result{}, err
+	// A webhook or member failure does not block the worker Secret above, and neither blocks the other.
+	webhookErr := r.ensureWebhooks(ctx, hc, tenant, instance)
+	memberErr := r.ensureMembers(ctx, hc, tenant)
+	if webhookErr != nil {
+		// Keep the retry of the member failure that is not returned.
+		var werr, merr *conditionError
+		if errors.As(webhookErr, &werr) && !werr.retry && memberErr != nil && (!errors.As(memberErr, &merr) || merr.retry) {
+			werr.retry = true
+		}
+		return ctrl.Result{}, webhookErr
+	}
+	if memberErr != nil {
+		return ctrl.Result{}, memberErr
 	}
 
 	setCondition(&tenant.Status.Conditions, tenant.Generation, hatchetv1alpha1.ConditionReady, true,
@@ -506,7 +516,7 @@ func (r *HatchetTenantReconciler) ensureNetworkPolicy(ctx context.Context, tenan
 	return requeueAfter, ownershipCondition(err)
 }
 
-// reconcileDelete revokes the CR's tokens, deletes its webhooks and releases the finalizer.
+// reconcileDelete revokes the CR's tokens, deletes its webhooks, members and invites and releases the finalizer.
 func (r *HatchetTenantReconciler) reconcileDelete(ctx context.Context, tenant *hatchetv1alpha1.HatchetTenant,
 	instance *hatchetv1alpha1.HatchetInstance) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(tenant, hatchetv1alpha1.TenantFinalizer) {
@@ -549,10 +559,10 @@ func (r *HatchetTenantReconciler) revokeAll(ctx context.Context, tenant *hatchet
 	}
 	for _, w := range tenant.Status.Webhooks {
 		if err := hc.DeleteWebhook(ctx, tenant.Status.TenantID, w.Name); err != nil && !errors.Is(err, hatchet.ErrNotFound) {
-			return webhookError(w.Name, err)
+			return scopedError("webhook "+w.Name, hatchetv1alpha1.ReasonWebhookFailed, err)
 		}
 	}
-	return nil
+	return r.deleteTrackedMembers(ctx, hc, tenant)
 }
 
 // SetupWithManager registers the field index and the controller with the manager.

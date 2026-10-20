@@ -45,4 +45,5 @@ const (
 	ReasonInvalidSpec      = "InvalidSpec"
 	ReasonRevocationFailed = "RevocationFailed"
 	ReasonWebhookFailed    = "WebhookFailed"
+	ReasonMemberFailed     = "MemberFailed"
 )

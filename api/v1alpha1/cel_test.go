@@ -257,3 +257,26 @@ func TestTenantRejectsWebhookWithTwoAuthMembers(t *testing.T) {
 	err := k8s.Create(context.Background(), tenantWithWebhookAuth(v1alpha1.WebhookAuth{Basic: basic, APIKey: apiKey}))
 	requireRejected(t, err, "exactly one of basic, apiKey or hmac must be set")
 }
+
+func TestTenantDefaultsMemberRole(t *testing.T) {
+	requireEnv(t)
+	tenant := newTenant(uniqueName("member"))
+	tenant.Spec.Members = []v1alpha1.Member{{Email: "alice@example.com"}}
+	create(t, tenant)
+	if role := tenant.Spec.Members[0].Role; role != "MEMBER" {
+		t.Errorf("role = %q, want MEMBER", role)
+	}
+}
+
+func TestTenantRejectsInvalidMemberEmail(t *testing.T) {
+	requireEnv(t)
+	for _, email := range []string{"Alice@example.com", "alice@Example.com", "alice", "alice@example", "a b@example.com"} {
+		t.Run(email, func(t *testing.T) {
+			tenant := newTenant(uniqueName("member"))
+			tenant.Spec.Members = []v1alpha1.Member{{Email: email}}
+			if err := k8s.Create(context.Background(), tenant); err == nil {
+				t.Fatalf("email %q was accepted", email)
+			}
+		})
+	}
+}

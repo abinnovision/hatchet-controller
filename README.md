@@ -142,6 +142,33 @@ The receiver URL is `<public Hatchet URL>/api/v1/stable/tenants/<tenantID>/webho
 - **Existing webhooks** with the same name that the controller did not create are replaced.
 - **Removing an entry** deletes the webhook in Hatchet. Deleting the `HatchetTenant` deletes all of its webhooks.
 
+## Members
+
+`spec.members` invites people to the tenant and manages the role of the people it invited.
+
+```yaml
+apiVersion: hatchet-controller.abigroup.io/v1alpha1
+kind: HatchetTenant
+metadata: {name: my-app, namespace: my-app}
+spec:
+  instanceRef: {name: hatchet, namespace: hatchet}
+  members:
+    - email: alice@example.com
+      role: ADMIN
+    - email: bob@example.com
+```
+
+Hatchet has no API to add a member directly, so the controller sends an invite. The person accepts it in the Hatchet UI after signing in or signing up with that email. `status.members` shows `Invited` with `inviteExpiresAt`, and `Member` once the invite was accepted. The controller notices the acceptance within 5 minutes and emits a `MemberInvited` event for each invite it sends.
+
+- **Emails** must be lowercase, because Hatchet compares invite emails exactly.
+- **Roles** are `OWNER`, `ADMIN` and `MEMBER` (the default). `VIEWER` needs Hatchet v0.112 or newer.
+- **Role changes** update the pending invite or the member.
+- **Expired invites** are sent again on a later reconcile.
+- **Removal** only covers people tracked in `status.members`. People added in the Hatchet UI and the service user are never touched. Listing an email that is already a member or has a pending invite adopts it, and the spec then sets their role and removes them when the entry goes. Do not list the service user's own email.
+- **Removing an entry** deletes the pending invite or removes the member from the tenant. Deleting the `HatchetTenant` does this for all tracked people.
+- **Failures** show as `MemberFailed`, or `Unauthorized` when Hatchet denies the call (e.g. pending invite limit, or the service user is not an owner of an inherited tenant). A failure does not block the worker Secret or the webhooks.
+- **Inherited tenants** need the service user to be an `ADMIN` there, and an `OWNER` to grant `OWNER` or remove members.
+
 ## Existing tenants and the tenant ID annotation
 
 Once a tenant is created, the controller writes its ID to the annotation `hatchet-controller.abigroup.io/tenant-id`. If you restore the `HatchetTenant` from a backup without status, the annotation keeps it bound to the same tenant instead of creating a second one. The ID is also in `status.tenantID` and in the `TenantCreated` event.

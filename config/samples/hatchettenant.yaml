@@ -7,6 +7,9 @@ spec:
   instanceRef:
     name: hatchet
     namespace: hatchet
+  members:
+    - email: alice@example.com
+      role: ADMIN
   webhooks:
     - name: github
       source: GITHUB

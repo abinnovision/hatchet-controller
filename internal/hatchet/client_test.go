@@ -221,6 +221,74 @@ func TestDeleteWebhook(t *testing.T) {
 	assertRequest(t, got, http.MethodDelete, "/api/v1/stable/tenants/t1/webhooks/gh", "t1")
 }
 
+func TestListMembers(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{"rows":[{"metadata":{"id":"m1"},"user":{"email":"a@example.com","name":"A"},"role":"OWNER"}]}`)
+	members, err := c.ListMembers(context.Background(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodGet, "/api/v1/tenants/t1/members", "t1")
+	if want := []Member{{ID: "m1", Email: "a@example.com", Role: "OWNER"}}; !reflect.DeepEqual(members, want) {
+		t.Errorf("members = %+v, want %+v", members, want)
+	}
+}
+
+func TestUpdateMember(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{}`)
+	if err := c.UpdateMember(context.Background(), "t1", "m1", "ADMIN"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodPatch, "/api/v1/tenants/t1/members/m1", "t1")
+	assertJSON(t, got, `{"role":"ADMIN"}`)
+}
+
+func TestDeleteMember(t *testing.T) {
+	c, got := serve(t, http.StatusNoContent, "")
+	if err := c.DeleteMember(context.Background(), "t1", "m1"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodDelete, "/api/v1/tenants/t1/members/m1", "t1")
+}
+
+func TestListInvites(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{"rows":[{"metadata":{"id":"i1"},"email":"a@example.com","role":"MEMBER","expires":"2030-01-02T03:04:05Z"}]}`)
+	invites, err := c.ListInvites(context.Background(), "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodGet, "/api/v1/tenants/t1/invites", "t1")
+	want := []Invite{{ID: "i1", Email: "a@example.com", Role: "MEMBER", Expires: time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)}}
+	if !reflect.DeepEqual(invites, want) {
+		t.Errorf("invites = %+v, want %+v", invites, want)
+	}
+}
+
+func TestCreateInvite(t *testing.T) {
+	c, got := serve(t, http.StatusCreated, `{}`)
+	if err := c.CreateInvite(context.Background(), "t1", "a@example.com", "ADMIN"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodPost, "/api/v1/tenants/t1/invites", "t1")
+	assertJSON(t, got, `{"email":"a@example.com","role":"ADMIN"}`)
+}
+
+func TestUpdateInvite(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{}`)
+	if err := c.UpdateInvite(context.Background(), "t1", "i1", "MEMBER"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodPatch, "/api/v1/tenants/t1/invites/i1", "t1")
+	assertJSON(t, got, `{"role":"MEMBER"}`)
+}
+
+func TestDeleteInvite(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{}`)
+	if err := c.DeleteInvite(context.Background(), "t1", "i1"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodDelete, "/api/v1/tenants/t1/invites/i1", "t1")
+}
+
 func TestErrorMapping(t *testing.T) {
 	long := strings.Repeat("x", 300)
 	tests := []struct {
@@ -231,6 +299,7 @@ func TestErrorMapping(t *testing.T) {
 		message string
 	}{
 		{"401", 401, `{"errors":[{"description":"Not authorized"}]}`, ErrUnauthorized, "Not authorized"},
+		{"403 top-level description", 403, `{"description":"max pending invites reached"}`, ErrUnauthorized, "max pending invites reached"},
 		{"403", 403, `forbidden`, ErrUnauthorized, "hatchet returned status 403"},
 		{"404", 404, `{"errors":[{"description":"not found"}]}`, ErrNotFound, "not found"},
 		{"slug taken", 400, `{"errors":[{"description":"Tenant with that slug already exists."}]}`, ErrSlugTaken, "Tenant with that slug already exists."},

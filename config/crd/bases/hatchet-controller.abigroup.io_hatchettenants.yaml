@@ -79,6 +79,39 @@ spec:
                 - name
                 - namespace
                 type: object
+              members:
+                description: Members are people invited to the tenant. The controller
+                  only manages members it invited.
+                items:
+                  description: Member is a person invited to the Hatchet tenant.
+                  properties:
+                    email:
+                      description: Email of the person; it must be lowercase because
+                        Hatchet compares invite emails exactly.
+                      maxLength: 254
+                      pattern: ^[^A-Z\s@]+@[^A-Z\s@]+\.[^A-Z\s@]+$
+                      type: string
+                      x-kubernetes-validations:
+                      - message: email must be lowercase
+                        rule: self == self.lowerAscii()
+                    role:
+                      default: MEMBER
+                      description: Role of the person in the tenant; VIEWER needs
+                        Hatchet v0.112 or newer.
+                      enum:
+                      - OWNER
+                      - ADMIN
+                      - MEMBER
+                      - VIEWER
+                      type: string
+                  required:
+                  - email
+                  type: object
+                maxItems: 100
+                type: array
+                x-kubernetes-list-map-keys:
+                - email
+                x-kubernetes-list-type: map
               secretName:
                 description: SecretName is the worker Secret name; defaults to <name>-hatchet.
                 maxLength: 253
@@ -334,6 +367,35 @@ spec:
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
+                x-kubernetes-list-type: map
+              members:
+                description: Members are the people the controller invited, which
+                  it may update and remove.
+                items:
+                  description: MemberStatus records a person invited by the controller.
+                  properties:
+                    email:
+                      description: Email of the person.
+                      type: string
+                    inviteExpiresAt:
+                      description: InviteExpiresAt is the expiry of the pending invite;
+                        it is only set while invited.
+                      format: date-time
+                      type: string
+                    state:
+                      description: State is Invited while the invite is pending and
+                        Member once it was accepted.
+                      enum:
+                      - Invited
+                      - Member
+                      type: string
+                  required:
+                  - email
+                  - state
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - email
                 x-kubernetes-list-type: map
               observedGeneration:
                 description: ObservedGeneration is the generation last reconciled.
