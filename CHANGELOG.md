@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0](https://github.com/abinnovision/hatchet-controller/compare/v0.1.0...v0.2.0) (2026-10-20)
+
+
+### Features
+
+* manage incoming webhooks declaratively on HatchetTenant ([#18](https://github.com/abinnovision/hatchet-controller/issues/18)) ([f7fbfab](https://github.com/abinnovision/hatchet-controller/commit/f7fbfabd6b025f131d800b7a6a82d2f615af3eec))
+* manage tenant members declaratively on HatchetTenant ([#19](https://github.com/abinnovision/hatchet-controller/issues/19)) ([cf77deb](https://github.com/abinnovision/hatchet-controller/commit/cf77debbc675196dae5262400c9e84dd050e2644))
+* sync the Hatchet tenant name, defaulting to &lt;namespace&gt;/&lt;name&gt; ([#20](https://github.com/abinnovision/hatchet-controller/issues/20)) ([09f5ac5](https://github.com/abinnovision/hatchet-controller/commit/09f5ac5f8145597609bb8e059a6e3435c45d46d5))
+
+
+### Bug Fixes
+
+* point the kustomize base at the released 0.1.0 image ([#14](https://github.com/abinnovision/hatchet-controller/issues/14)) ([ba66a2d](https://github.com/abinnovision/hatchet-controller/commit/ba66a2dffe39b05a2025be7b06be648a7f526e5a))
+
 ## 0.1.0 (2026-10-17)
 
 
