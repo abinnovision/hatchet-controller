@@ -10,6 +10,17 @@ import (
 	"github.com/abinnovision/hatchet-controller/internal/hatchet"
 )
 
+func TestTenantDisplayName(t *testing.T) {
+	tenant := &hatchetv1alpha1.HatchetTenant{ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "team-orders"}}
+	if got, want := tenantDisplayName(tenant), "team-orders/orders"; got != want {
+		t.Fatalf("tenantDisplayName = %q, want %q", got, want)
+	}
+	tenant.Spec.DisplayName = "Orders"
+	if got, want := tenantDisplayName(tenant), "Orders"; got != want {
+		t.Fatalf("tenantDisplayName = %q, want %q", got, want)
+	}
+}
+
 func TestTenantSlug(t *testing.T) {
 	tenant := &hatchetv1alpha1.HatchetTenant{ObjectMeta: metav1.ObjectMeta{
 		Name: "orders", Namespace: "team-orders", UID: "3f2a9c1d-1111-2222-3333-444455556666",

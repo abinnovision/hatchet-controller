@@ -103,6 +103,8 @@ spec:
 
 Load the resulting `my-app-hatchet` Secret into your workers with `envFrom`.
 
+The Hatchet tenant name is set to `spec.displayName` on every reconcile, or to `<namespace>/<name>` when that is empty. This includes inherited tenants, and renames made in the Hatchet UI are reverted.
+
 ## Tokens
 
 Tokens rotate at two thirds of `tokenTTL` (default 8760h, allowed range 24h to 8760h). Running workers keep their old token until they restart, so with the default they have about four months after a rotation to pick up the new one. If you lower `tokenTTL`, use a restarter such as Reloader.

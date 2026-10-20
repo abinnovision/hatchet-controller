@@ -25,7 +25,7 @@ type HatchetTenantSpec struct {
 	// InstanceRef references the HatchetInstance hosting the tenant.
 	InstanceRef InstanceRef `json:"instanceRef"`
 
-	// DisplayName is the Hatchet tenant name; defaults to metadata.name.
+	// DisplayName is the Hatchet tenant name, kept in sync; defaults to <namespace>/<name>.
 	// +kubebuilder:validation:MaxLength=256
 	// +optional
 	DisplayName string `json:"displayName,omitempty"`

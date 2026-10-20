@@ -165,7 +165,7 @@ func (r *HatchetTenantReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, nil
 }
 
-// reconcile runs the Accepted, binding, token, NetworkPolicy, webhook and member steps.
+// reconcile runs the Accepted, binding, display name, token, NetworkPolicy, webhook and member steps.
 func (r *HatchetTenantReconciler) reconcile(ctx context.Context, tenant *hatchetv1alpha1.HatchetTenant,
 	instance *hatchetv1alpha1.HatchetInstance) (ctrl.Result, error) {
 	if err := r.accept(ctx, tenant, instance); err != nil {
@@ -178,6 +178,10 @@ func (r *HatchetTenantReconciler) reconcile(ctx context.Context, tenant *hatchet
 	}
 	if requeueAfter, err := r.bind(ctx, hc, tenant); err != nil || requeueAfter > 0 {
 		return ctrl.Result{RequeueAfter: requeueAfter}, err
+	}
+
+	if err := r.ensureDisplayName(ctx, hc, tenant); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	rotateAt, requeueAfter, err := r.ensureToken(ctx, hc, tenant, instance)
@@ -317,11 +321,7 @@ func (r *HatchetTenantReconciler) bind(ctx context.Context, hc hatchet.Client, t
 	}
 
 	slug := tenantSlug(tenant)
-	name := tenant.Spec.DisplayName
-	if name == "" {
-		name = tenant.Name
-	}
-	t, err := hc.CreateTenant(ctx, name, slug)
+	t, err := hc.CreateTenant(ctx, tenantDisplayName(tenant), slug)
 	if errors.Is(err, hatchet.ErrSlugTaken) {
 		return 0, &conditionError{reason: hatchetv1alpha1.ReasonSlugTaken, message: fmt.Sprintf(
 			"tenant slug %s already exists. If a TenantCreated Event names its ID, set it as annotation %s "+
@@ -380,6 +380,24 @@ func (r *HatchetTenantReconciler) patchTenantID(ctx context.Context, tenant *hat
 func tenantIDConflict(annotated, bound string) *conditionError {
 	return &conditionError{reason: hatchetv1alpha1.ReasonTenantIDConflict, message: fmt.Sprintf(
 		"annotation %s is %s but the tenant is bound to %s", hatchetv1alpha1.TenantIDAnnotation, annotated, bound)}
+}
+
+// ensureDisplayName renames the Hatchet tenant when its name differs from the desired one.
+func (r *HatchetTenantReconciler) ensureDisplayName(ctx context.Context, hc hatchet.Client, tenant *hatchetv1alpha1.HatchetTenant) error {
+	t, err := hc.GetTenant(ctx, tenant.Status.TenantID)
+	if err != nil {
+		return hatchetError(err)
+	}
+	name := tenantDisplayName(tenant)
+	if t.Name == name {
+		return nil
+	}
+	if err := hc.UpdateTenantName(ctx, t.ID, name); err != nil {
+		return hatchetError(err)
+	}
+	r.Recorder.Eventf(tenant, nil, corev1.EventTypeNormal, "TenantRenamed", "UpdateTenant",
+		"Renamed Hatchet tenant %s to %q", t.ID, name)
+	return nil
 }
 
 // ensureToken issues, rotates and stores the worker token. It returns the next rotation time.

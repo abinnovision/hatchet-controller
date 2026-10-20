@@ -58,7 +58,8 @@ spec:
             description: HatchetTenantSpec defines the desired Hatchet tenant.
             properties:
               displayName:
-                description: DisplayName is the Hatchet tenant name; defaults to metadata.name.
+                description: DisplayName is the Hatchet tenant name, kept in sync;
+                  defaults to <namespace>/<name>.
                 maxLength: 256
                 type: string
               instanceRef:

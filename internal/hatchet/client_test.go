@@ -90,6 +90,15 @@ func TestGetTenant(t *testing.T) {
 	}
 }
 
+func TestUpdateTenantName(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{"metadata":{"id":"t1"},"name":"new","slug":"s"}`)
+	if err := c.UpdateTenantName(context.Background(), "t1", "new"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodPatch, "/api/v1/tenants/t1", "t1")
+	assertJSON(t, got, `{"name":"new"}`)
+}
+
 func TestCreateAPIToken(t *testing.T) {
 	value := apiToken(t, `{"sub":"t1","token_id":"tok-1"}`)
 	c, got := serve(t, http.StatusOK, `{"token":"`+value+`"}`)
