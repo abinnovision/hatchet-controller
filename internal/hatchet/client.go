@@ -35,6 +35,33 @@ type TokenInfo struct {
 	ExpiresAt time.Time
 }
 
+// Webhook is an incoming webhook. Hatchet never returns Auth on reads.
+type Webhook struct {
+	Name               string
+	SourceName         string
+	EventKeyExpression string
+	ScopeExpression    string
+	// StaticPayload is a JSON object.
+	StaticPayload map[string]any
+	// AuthType is BASIC, API_KEY or HMAC.
+	AuthType string
+	Auth     WebhookAuth
+}
+
+// WebhookAuth holds the credentials for the member matching Webhook.AuthType.
+type WebhookAuth struct {
+	Username string
+	Password string
+
+	HeaderName string
+	APIKey     string
+
+	Algorithm           string
+	Encoding            string
+	SignatureHeaderName string
+	SigningSecret       string
+}
+
 // Client covers the Hatchet API calls the controller needs.
 type Client interface {
 	// CreateTenant creates a tenant owned by the service user.
@@ -47,6 +74,14 @@ type Client interface {
 	ListAPITokens(ctx context.Context, tenantID string) ([]TokenInfo, error)
 	// RevokeAPIToken revokes an API token of the tenant.
 	RevokeAPIToken(ctx context.Context, tenantID, tokenID string) error
+	// GetWebhook returns an incoming webhook of the tenant without its auth; a missing one is ErrNotFound.
+	GetWebhook(ctx context.Context, tenantID, name string) (Webhook, error)
+	// CreateWebhook creates an incoming webhook in the tenant.
+	CreateWebhook(ctx context.Context, tenantID string, w Webhook) error
+	// UpdateWebhook sets the mutable fields of an incoming webhook; an empty scope clears it.
+	UpdateWebhook(ctx context.Context, tenantID, name, eventKeyExpression, scopeExpression string, staticPayload map[string]any) error
+	// DeleteWebhook deletes an incoming webhook of the tenant.
+	DeleteWebhook(ctx context.Context, tenantID, name string) error
 }
 
 // TokenSource signs exchange JWTs; keyset.Signer implements it.
@@ -169,6 +204,75 @@ func (c *client) ListAPITokens(ctx context.Context, tenantID string) ([]TokenInf
 
 func (c *client) RevokeAPIToken(ctx context.Context, tenantID, tokenID string) error {
 	return c.do(ctx, http.MethodPost, "/api/v1/api-tokens/"+url.PathEscape(tokenID), tenantID, nil, nil)
+}
+
+func webhooksPath(tenantID string) string {
+	return "/api/v1/stable/tenants/" + url.PathEscape(tenantID) + "/webhooks"
+}
+
+func (c *client) GetWebhook(ctx context.Context, tenantID, name string) (Webhook, error) {
+	var out struct {
+		Name               string         `json:"name"`
+		SourceName         string         `json:"sourceName"`
+		EventKeyExpression string         `json:"eventKeyExpression"`
+		ScopeExpression    string         `json:"scopeExpression"`
+		StaticPayload      map[string]any `json:"staticPayload"`
+		AuthType           string         `json:"authType"`
+	}
+	if err := c.do(ctx, http.MethodGet, webhooksPath(tenantID)+"/"+url.PathEscape(name), tenantID, nil, &out); err != nil {
+		return Webhook{}, err
+	}
+	return Webhook{
+		Name: out.Name, SourceName: out.SourceName, EventKeyExpression: out.EventKeyExpression,
+		ScopeExpression: out.ScopeExpression, StaticPayload: out.StaticPayload, AuthType: out.AuthType,
+	}, nil
+}
+
+func (c *client) CreateWebhook(ctx context.Context, tenantID string, w Webhook) error {
+	body := map[string]any{
+		"name":               w.Name,
+		"sourceName":         w.SourceName,
+		"eventKeyExpression": w.EventKeyExpression,
+		"authType":           w.AuthType,
+	}
+	if w.ScopeExpression != "" {
+		body["scopeExpression"] = w.ScopeExpression
+	}
+	if w.StaticPayload != nil {
+		body["staticPayload"] = w.StaticPayload
+	}
+	switch w.AuthType {
+	case "BASIC":
+		body["auth"] = map[string]string{"username": w.Auth.Username, "password": w.Auth.Password}
+	case "API_KEY":
+		body["auth"] = map[string]string{"headerName": w.Auth.HeaderName, "apiKey": w.Auth.APIKey}
+	case "HMAC":
+		body["auth"] = map[string]string{
+			"algorithm": w.Auth.Algorithm, "encoding": w.Auth.Encoding,
+			"signatureHeaderName": w.Auth.SignatureHeaderName, "signingSecret": w.Auth.SigningSecret,
+		}
+	default:
+		return fmt.Errorf("unsupported webhook auth type %q", w.AuthType)
+	}
+	return c.do(ctx, http.MethodPost, webhooksPath(tenantID), tenantID, body, nil)
+}
+
+// UpdateWebhook always sends scopeExpression and staticPayload because Hatchet ignores null fields.
+func (c *client) UpdateWebhook(ctx context.Context, tenantID, name, eventKeyExpression, scopeExpression string,
+	staticPayload map[string]any) error {
+	if staticPayload == nil {
+		staticPayload = map[string]any{}
+	}
+	body := map[string]any{
+		"eventKeyExpression": eventKeyExpression,
+		"scopeExpression":    scopeExpression,
+		"staticPayload":      staticPayload,
+	}
+	return c.do(ctx, http.MethodPatch, webhooksPath(tenantID)+"/"+url.PathEscape(name), tenantID, body, nil)
+}
+
+func (c *client) DeleteWebhook(ctx context.Context, tenantID, name string) error {
+	return c.do(ctx, http.MethodDelete, webhooksPath(tenantID)+"/"+url.PathEscape(name), tenantID, nil, nil)
 }
 
 // do sends an exchange-token request and decodes a 2xx JSON response into out, if non-nil.

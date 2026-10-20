@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func (fakeSigner) Sign(subject, tenantID string, _ time.Time) (string, error) {
 type request struct {
 	method, path, auth, exchange string
 	body                         map[string]string
+	raw                          []byte
 }
 
 // serve starts a server that records the last request and replies with status and body.
@@ -33,6 +35,7 @@ func serve(t *testing.T, status int, body string) (Client, *request) {
 		got.method, got.path = r.Method, r.URL.Path
 		got.auth, got.exchange = r.Header.Get("Authorization"), r.Header.Get("X-Exchange-Token")
 		if b, _ := io.ReadAll(r.Body); len(b) > 0 {
+			got.raw = b
 			_ = json.Unmarshal(b, &got.body)
 		}
 		w.WriteHeader(status)
@@ -132,6 +135,90 @@ func TestRevokeAPIToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRequest(t, got, http.MethodPost, "/api/v1/api-tokens/tok-1", "t1")
+}
+
+// assertJSON fails unless the recorded request body equals want.
+func assertJSON(t *testing.T, got *request, want string) {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal(got.raw, &g); err != nil {
+		t.Fatalf("body %q: %v", got.raw, err)
+	}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(g, w) {
+		t.Errorf("body = %s, want %s", got.raw, want)
+	}
+}
+
+func TestGetWebhook(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{"metadata":{"id":"w1"},"name":"gh","sourceName":"GITHUB","eventKeyExpression":"'e'",`+
+		`"scopeExpression":"'s'","staticPayload":{"a":"b"},"authType":"HMAC"}`)
+	w, err := c.GetWebhook(context.Background(), "t1", "gh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodGet, "/api/v1/stable/tenants/t1/webhooks/gh", "t1")
+	want := Webhook{Name: "gh", SourceName: "GITHUB", EventKeyExpression: "'e'", ScopeExpression: "'s'",
+		StaticPayload: map[string]any{"a": "b"}, AuthType: "HMAC"}
+	if !reflect.DeepEqual(w, want) {
+		t.Errorf("webhook = %+v, want %+v", w, want)
+	}
+}
+
+func TestGetWebhookNotFound(t *testing.T) {
+	c, _ := serve(t, http.StatusNotFound, `{"errors":[{"description":"not found"}]}`)
+	if _, err := c.GetWebhook(context.Background(), "t1", "gh"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCreateWebhook(t *testing.T) {
+	tests := []struct {
+		name string
+		in   Webhook
+		want string
+	}{
+		{"basic", Webhook{Name: "w", SourceName: "GENERIC", EventKeyExpression: "'e'", AuthType: "BASIC",
+			Auth: WebhookAuth{Username: "u", Password: "p"}},
+			`{"name":"w","sourceName":"GENERIC","eventKeyExpression":"'e'","authType":"BASIC","auth":{"username":"u","password":"p"}}`},
+		{"api key", Webhook{Name: "w", SourceName: "STRIPE", EventKeyExpression: "'e'", ScopeExpression: "'s'",
+			StaticPayload: map[string]any{"a": "b"}, AuthType: "API_KEY", Auth: WebhookAuth{HeaderName: "X-Key", APIKey: "k"}},
+			`{"name":"w","sourceName":"STRIPE","eventKeyExpression":"'e'","scopeExpression":"'s'","staticPayload":{"a":"b"},` +
+				`"authType":"API_KEY","auth":{"headerName":"X-Key","apiKey":"k"}}`},
+		{"hmac", Webhook{Name: "w", SourceName: "GITHUB", EventKeyExpression: "'e'", AuthType: "HMAC",
+			Auth: WebhookAuth{Algorithm: "SHA256", Encoding: "HEX", SignatureHeaderName: "X-Sig", SigningSecret: "s"}},
+			`{"name":"w","sourceName":"GITHUB","eventKeyExpression":"'e'","authType":"HMAC",` +
+				`"auth":{"algorithm":"SHA256","encoding":"HEX","signatureHeaderName":"X-Sig","signingSecret":"s"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, got := serve(t, http.StatusOK, `{}`)
+			if err := c.CreateWebhook(context.Background(), "t1", tt.in); err != nil {
+				t.Fatal(err)
+			}
+			assertRequest(t, got, http.MethodPost, "/api/v1/stable/tenants/t1/webhooks", "t1")
+			assertJSON(t, got, tt.want)
+		})
+	}
+}
+
+func TestUpdateWebhook(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{}`)
+	if err := c.UpdateWebhook(context.Background(), "t1", "gh", "'e'", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodPatch, "/api/v1/stable/tenants/t1/webhooks/gh", "t1")
+	assertJSON(t, got, `{"eventKeyExpression":"'e'","scopeExpression":"","staticPayload":{}}`)
+}
+
+func TestDeleteWebhook(t *testing.T) {
+	c, got := serve(t, http.StatusOK, `{}`)
+	if err := c.DeleteWebhook(context.Background(), "t1", "gh"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequest(t, got, http.MethodDelete, "/api/v1/stable/tenants/t1/webhooks/gh", "t1")
 }
 
 func TestErrorMapping(t *testing.T) {

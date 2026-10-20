@@ -109,6 +109,39 @@ Tokens rotate at two thirds of `tokenTTL` (default 8760h, allowed range 24h to 8
 
 To replace a leaked token, delete the worker Secret. The controller mints a new token and revokes the old one.
 
+## Incoming webhooks
+
+`spec.webhooks` manages Hatchet incoming webhooks for the tenant, for sources such as GitHub, Stripe or Slack. Credentials come from Secrets in the tenant's namespace.
+
+```yaml
+apiVersion: hatchet-controller.abigroup.io/v1alpha1
+kind: HatchetTenant
+metadata: {name: my-app, namespace: my-app}
+spec:
+  instanceRef: {name: hatchet, namespace: hatchet}
+  webhooks:
+    - name: github
+      source: GITHUB
+      eventKeyExpression: "'github:' + headers['x-github-event']"
+      auth:
+        hmac:
+          algorithm: SHA256
+          encoding: HEX
+          signatureHeaderName: X-Hub-Signature-256
+          signingSecretRef: {name: github-webhook, key: secret}
+```
+
+The receiver URL is `<public Hatchet URL>/api/v1/stable/tenants/<tenantID>/webhooks/<name>`. The tenant ID is in `status.tenantID`. `auth` takes exactly one of `basic`, `apiKey` or `hmac`. `source` defaults to `GENERIC`.
+
+- **Failures** show as `Ready=False/WebhookFailed`. A missing Secret or key shows `InvalidSpec`. Neither blocks the worker Secret.
+- **Expression and payload changes** (`eventKeyExpression`, `scopeExpression`, `staticPayload`) update the webhook in place.
+- **Source and credential changes** delete and re-create the webhook, because Hatchet cannot patch them. Requests get a 404 for a moment. A `WebhookRecreated` event is emitted.
+- **A failed re-create** leaves the webhook absent until the cause is fixed; `Ready=False` shows why.
+- **Pruning** only covers webhooks tracked in `status.webhooks`. Restoring a HatchetTenant without its status while removing an entry from `spec.webhooks` leaves that webhook in Hatchet.
+- **Rotating a credential Secret** (a changed value, not other Secret edits) is picked up within 5 minutes, because the controller does not watch these Secrets.
+- **Existing webhooks** with the same name that the controller did not create are replaced.
+- **Removing an entry** deletes the webhook in Hatchet. Deleting the `HatchetTenant` deletes all of its webhooks.
+
 ## Existing tenants and the tenant ID annotation
 
 Once a tenant is created, the controller writes its ID to the annotation `hatchet-controller.abigroup.io/tenant-id`. If you restore the `HatchetTenant` from a backup without status, the annotation keeps it bound to the same tenant instead of creating a second one. The ID is also in `status.tenantID` and in the `TenantCreated` event.
@@ -164,7 +197,7 @@ Managing a `HatchetInstance` is effectively Hatchet root access, so that role is
 
 ## Deletion and recovery
 
-- **Deleting a `HatchetTenant`** revokes its tokens and removes the worker Secret. The Hatchet tenant stays, because Hatchet has no API to delete tenants.
+- **Deleting a `HatchetTenant`** revokes its tokens, deletes its webhooks and removes the worker Secret. The Hatchet tenant stays, because Hatchet has no API to delete tenants.
 - **Deleting a `HatchetInstance`** removes the signing key and keyset. On its next restart the Hatchet API waits for the missing Secret until you disable exchange tokens. A recreated instance gets a new key, which needs an API restart. Meanwhile tenants show `Accepted=False/InstanceNotFound`, keep their Secrets until the tokens expire, and drop their finalizers without revoking. Protect GitOps-managed instances with `argocd.argoproj.io/sync-options: Delete=false` or `kustomize.toolkit.fluxcd.io/prune: disabled`.
 - **Removing a namespace from `allowedNamespaces`** sets `Accepted=False`, but the existing Secret and token stay.
 - **Removing `spec.networkPolicy`** leaves existing policies in place until the tenant is deleted.

@@ -45,6 +45,108 @@ type HatchetTenantSpec struct {
 	// +kubebuilder:validation:XValidation:rule="duration(self) <= duration('8760h')",message="tokenTTL must be at most 8760h"
 	// +optional
 	TokenTTL *metav1.Duration `json:"tokenTTL,omitempty"`
+
+	// Webhooks are incoming Hatchet webhooks managed for the tenant.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	Webhooks []Webhook `json:"webhooks,omitempty"`
+}
+
+// Webhook is an incoming Hatchet webhook. Credentials are read from Secrets in the tenant's namespace.
+type Webhook struct {
+	// Name of the webhook; it is part of the receiver URL.
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+
+	// Source selects the provider-specific payload handling.
+	// +kubebuilder:validation:Enum=GENERIC;GITHUB;STRIPE;SLACK;LINEAR;SVIX
+	// +kubebuilder:default=GENERIC
+	// +optional
+	Source string `json:"source,omitempty"`
+
+	// EventKeyExpression is the CEL expression that derives the event key from the payload.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=1024
+	EventKeyExpression string `json:"eventKeyExpression"`
+
+	// ScopeExpression is the CEL expression that derives the event scope from the payload.
+	// +kubebuilder:validation:MaxLength=1024
+	// +optional
+	ScopeExpression string `json:"scopeExpression,omitempty"`
+
+	// StaticPayload is a JSON object sent with every event.
+	// +kubebuilder:pruning:PreserveUnknownFields
+	// +kubebuilder:validation:Type=object
+	// +optional
+	StaticPayload *runtime.RawExtension `json:"staticPayload,omitempty"`
+
+	// Auth selects how Hatchet authenticates incoming requests.
+	Auth WebhookAuth `json:"auth"`
+}
+
+// WebhookAuth is a union: exactly one member is set.
+// +kubebuilder:validation:XValidation:rule="(has(self.basic) ? 1 : 0) + (has(self.apiKey) ? 1 : 0) + (has(self.hmac) ? 1 : 0) == 1",message="exactly one of basic, apiKey or hmac must be set"
+type WebhookAuth struct {
+	// +optional
+	Basic *WebhookBasicAuth `json:"basic,omitempty"`
+	// +optional
+	APIKey *WebhookAPIKeyAuth `json:"apiKey,omitempty"`
+	// +optional
+	HMAC *WebhookHMACAuth `json:"hmac,omitempty"`
+}
+
+// SecretKeyRef selects a key of a Secret in the tenant's namespace.
+type SecretKeyRef struct {
+	// Name of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+
+	// Key within the Secret.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Key string `json:"key"`
+}
+
+// WebhookBasicAuth authenticates requests with HTTP basic auth.
+type WebhookBasicAuth struct {
+	// Username expected in the Authorization header.
+	// +kubebuilder:validation:MinLength=1
+	Username string `json:"username"`
+
+	// PasswordSecretRef selects the Secret key holding the password.
+	PasswordSecretRef SecretKeyRef `json:"passwordSecretRef"`
+}
+
+// WebhookAPIKeyAuth authenticates requests with a static header value.
+type WebhookAPIKeyAuth struct {
+	// HeaderName carries the API key.
+	// +kubebuilder:validation:MinLength=1
+	HeaderName string `json:"headerName"`
+
+	// APIKeySecretRef selects the Secret key holding the API key.
+	APIKeySecretRef SecretKeyRef `json:"apiKeySecretRef"`
+}
+
+// WebhookHMACAuth authenticates requests with an HMAC signature of the body.
+type WebhookHMACAuth struct {
+	// Algorithm is the HMAC hash.
+	// +kubebuilder:validation:Enum=SHA1;SHA256;SHA512;MD5
+	Algorithm string `json:"algorithm"`
+
+	// Encoding is the signature encoding.
+	// +kubebuilder:validation:Enum=HEX;BASE64;BASE64URL
+	Encoding string `json:"encoding"`
+
+	// SignatureHeaderName carries the signature.
+	// +kubebuilder:validation:MinLength=1
+	SignatureHeaderName string `json:"signatureHeaderName"`
+
+	// SigningSecretRef selects the Secret key holding the signing secret.
+	SigningSecretRef SecretKeyRef `json:"signingSecretRef"`
 }
 
 // HatchetTenantStatus defines the observed state of HatchetTenant.
@@ -67,11 +169,26 @@ type HatchetTenantStatus struct {
 	// +optional
 	TokenExpiresAt *metav1.Time `json:"tokenExpiresAt,omitempty"`
 
+	// Webhooks are the webhooks the controller created, with the auth they were created with.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Webhooks []WebhookStatus `json:"webhooks,omitempty"`
+
 	// Conditions describe the current state.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// WebhookStatus records a webhook created by the controller.
+type WebhookStatus struct {
+	// Name of the webhook.
+	Name string `json:"name"`
+
+	// Fingerprint identifies the source and auth the webhook was created with; it is a keyed hash and holds no secret material.
+	Fingerprint string `json:"fingerprint"`
 }
 
 // HatchetTenant declares a Hatchet tenant and its worker credential Secret.
