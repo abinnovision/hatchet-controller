@@ -44,4 +44,5 @@ const (
 	ReasonHatchetError     = "HatchetError"
 	ReasonInvalidSpec      = "InvalidSpec"
 	ReasonRevocationFailed = "RevocationFailed"
+	ReasonWebhookFailed    = "WebhookFailed"
 )

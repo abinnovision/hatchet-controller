@@ -96,6 +96,173 @@ spec:
                   rule: duration(self) >= duration('24h')
                 - message: tokenTTL must be at most 8760h
                   rule: duration(self) <= duration('8760h')
+              webhooks:
+                description: Webhooks are incoming Hatchet webhooks managed for the
+                  tenant.
+                items:
+                  description: Webhook is an incoming Hatchet webhook. Credentials
+                    are read from Secrets in the tenant's namespace.
+                  properties:
+                    auth:
+                      description: Auth selects how Hatchet authenticates incoming
+                        requests.
+                      properties:
+                        apiKey:
+                          description: WebhookAPIKeyAuth authenticates requests with
+                            a static header value.
+                          properties:
+                            apiKeySecretRef:
+                              description: APIKeySecretRef selects the Secret key
+                                holding the API key.
+                              properties:
+                                key:
+                                  description: Key within the Secret.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                                name:
+                                  description: Name of the Secret.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            headerName:
+                              description: HeaderName carries the API key.
+                              minLength: 1
+                              type: string
+                          required:
+                          - apiKeySecretRef
+                          - headerName
+                          type: object
+                        basic:
+                          description: WebhookBasicAuth authenticates requests with
+                            HTTP basic auth.
+                          properties:
+                            passwordSecretRef:
+                              description: PasswordSecretRef selects the Secret key
+                                holding the password.
+                              properties:
+                                key:
+                                  description: Key within the Secret.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                                name:
+                                  description: Name of the Secret.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                            username:
+                              description: Username expected in the Authorization
+                                header.
+                              minLength: 1
+                              type: string
+                          required:
+                          - passwordSecretRef
+                          - username
+                          type: object
+                        hmac:
+                          description: WebhookHMACAuth authenticates requests with
+                            an HMAC signature of the body.
+                          properties:
+                            algorithm:
+                              description: Algorithm is the HMAC hash.
+                              enum:
+                              - SHA1
+                              - SHA256
+                              - SHA512
+                              - MD5
+                              type: string
+                            encoding:
+                              description: Encoding is the signature encoding.
+                              enum:
+                              - HEX
+                              - BASE64
+                              - BASE64URL
+                              type: string
+                            signatureHeaderName:
+                              description: SignatureHeaderName carries the signature.
+                              minLength: 1
+                              type: string
+                            signingSecretRef:
+                              description: SigningSecretRef selects the Secret key
+                                holding the signing secret.
+                              properties:
+                                key:
+                                  description: Key within the Secret.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                                name:
+                                  description: Name of the Secret.
+                                  maxLength: 253
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          required:
+                          - algorithm
+                          - encoding
+                          - signatureHeaderName
+                          - signingSecretRef
+                          type: object
+                      type: object
+                      x-kubernetes-validations:
+                      - message: exactly one of basic, apiKey or hmac must be set
+                        rule: '(has(self.basic) ? 1 : 0) + (has(self.apiKey) ? 1 :
+                          0) + (has(self.hmac) ? 1 : 0) == 1'
+                    eventKeyExpression:
+                      description: EventKeyExpression is the CEL expression that derives
+                        the event key from the payload.
+                      maxLength: 1024
+                      minLength: 1
+                      type: string
+                    name:
+                      description: Name of the webhook; it is part of the receiver
+                        URL.
+                      maxLength: 63
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    scopeExpression:
+                      description: ScopeExpression is the CEL expression that derives
+                        the event scope from the payload.
+                      maxLength: 1024
+                      type: string
+                    source:
+                      default: GENERIC
+                      description: Source selects the provider-specific payload handling.
+                      enum:
+                      - GENERIC
+                      - GITHUB
+                      - STRIPE
+                      - SLACK
+                      - LINEAR
+                      - SVIX
+                      type: string
+                    staticPayload:
+                      description: StaticPayload is a JSON object sent with every
+                        event.
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                  required:
+                  - auth
+                  - eventKeyExpression
+                  - name
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             required:
             - instanceRef
             type: object
@@ -185,6 +352,28 @@ spec:
                   Secret.
                 format: date-time
                 type: string
+              webhooks:
+                description: Webhooks are the webhooks the controller created, with
+                  the auth they were created with.
+                items:
+                  description: WebhookStatus records a webhook created by the controller.
+                  properties:
+                    fingerprint:
+                      description: Fingerprint identifies the source and auth the
+                        webhook was created with; it is a keyed hash and holds no
+                        secret material.
+                      type: string
+                    name:
+                      description: Name of the webhook.
+                      type: string
+                  required:
+                  - fingerprint
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
         required:
         - spec

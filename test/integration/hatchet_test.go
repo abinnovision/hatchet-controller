@@ -55,6 +55,11 @@ func TestHatchet(t *testing.T) {
 				{"DeletedSecretRotatesAndRevokes", testDeletedSecretRotatesAndRevokes},
 				{"DeletedSecretRetryLeavesOneToken", testDeletedSecretRetryLeavesOneToken},
 				{"DeletedTenantRevokesTokens", testDeletedTenantRevokesTokens},
+				{"WebhookIsCreatedAndAcceptsRequests", testWebhookCreated},
+				{"WebhookExpressionChangeUpdatesInPlace", testWebhookExpressionUpdate},
+				{"WebhookSecretRotationRecreates", testWebhookSecretRotation},
+				{"RemovedWebhookIsPruned", testWebhookPruned},
+				{"DeletedTenantDeletesWebhooks", testWebhookDeletedWithTenant},
 				{"DisallowedNamespaceIsNotAccepted", testDisallowedNamespace},
 				// Last: changes the shared instance spec.
 				{"NetworkPolicyUsesPortOverrides", testNetworkPolicyPorts},
@@ -447,6 +452,153 @@ func testDeletedTenantRevokesTokens(t *testing.T, s *suite) {
 			t.Errorf("token %s (%s) is still listed", id, name)
 		}
 	}
+}
+
+func testWebhookCreated(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newWebhookTenant(t, "hooks-created", "s3cret"))
+	id := tenant.Status.TenantID
+
+	got, err := s.client.GetWebhook(context.Background(), id, "basic")
+	if err != nil {
+		t.Fatalf("GetWebhook: %v", err)
+	}
+	if got.SourceName != "GENERIC" || got.AuthType != "BASIC" || got.EventKeyExpression != "'it-event'" {
+		t.Errorf("webhook = %+v", got)
+	}
+	if len(tenant.Status.Webhooks) != 1 || tenant.Status.Webhooks[0].Name != "basic" || tenant.Status.Webhooks[0].Fingerprint == "" {
+		t.Errorf("status.webhooks = %+v", tenant.Status.Webhooks)
+	}
+	if code := s.postWebhook(t, id, "basic", "s3cret"); code != http.StatusOK {
+		t.Errorf("receiver with valid credentials returned %d, want 200", code)
+	}
+	if code := s.postWebhook(t, id, "basic", "wrong"); code != http.StatusForbidden {
+		t.Errorf("receiver with wrong credentials returned %d, want 403", code)
+	}
+}
+
+func testWebhookExpressionUpdate(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newWebhookTenant(t, "hooks-update", "s3cret"))
+	before := tenant.Status.Webhooks[0].Fingerprint
+
+	patch := client.MergeFrom(tenant.DeepCopy())
+	tenant.Spec.Webhooks[0].EventKeyExpression = "'changed'"
+	tenant.Spec.Webhooks[0].ScopeExpression = "'scope'"
+	if err := env.Client.Patch(context.Background(), tenant, patch); err != nil {
+		t.Fatalf("patching webhook: %v", err)
+	}
+	tenant = waitReady(t, tenant)
+
+	got, err := s.client.GetWebhook(context.Background(), tenant.Status.TenantID, "basic")
+	if err != nil {
+		t.Fatalf("GetWebhook: %v", err)
+	}
+	if got.EventKeyExpression != "'changed'" || got.ScopeExpression != "'scope'" {
+		t.Errorf("webhook = %+v", got)
+	}
+	if after := tenant.Status.Webhooks[0].Fingerprint; after != before {
+		t.Errorf("fingerprint changed on an expression update: %q -> %q", before, after)
+	}
+	if code := s.postWebhook(t, tenant.Status.TenantID, "basic", "s3cret"); code != http.StatusOK {
+		t.Errorf("receiver returned %d, want 200", code)
+	}
+}
+
+func testWebhookSecretRotation(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newWebhookTenant(t, "hooks-rotate", "old-pass"))
+	id := tenant.Status.TenantID
+	before := tenant.Status.Webhooks[0].Fingerprint
+
+	var secret corev1.Secret
+	if err := env.Client.Get(context.Background(), key(tenant.Namespace, "webhook-creds"), &secret); err != nil {
+		t.Fatal(err)
+	}
+	patch := client.MergeFrom(secret.DeepCopy())
+	secret.Data["password"] = []byte("new-pass")
+	if err := env.Client.Patch(context.Background(), &secret, patch); err != nil {
+		t.Fatalf("rotating secret: %v", err)
+	}
+	// User Secrets are not watched; force the reconcile the periodic recheck would run.
+	bump(t, tenant)
+
+	eventually(t, func() error {
+		if code := s.postWebhook(t, id, "basic", "new-pass"); code != http.StatusOK {
+			return fmt.Errorf("receiver with the new password returned %d, want 200", code)
+		}
+		return nil
+	})
+	if code := s.postWebhook(t, id, "basic", "old-pass"); code != http.StatusForbidden {
+		t.Errorf("receiver with the old password returned %d, want 403", code)
+	}
+	tenant = waitReady(t, tenant)
+	if after := tenant.Status.Webhooks[0].Fingerprint; after == before {
+		t.Error("fingerprint did not change after the Secret rotation")
+	}
+}
+
+func testWebhookPruned(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newWebhookTenant(t, "hooks-pruned", "s3cret"))
+
+	patch := client.MergeFrom(tenant.DeepCopy())
+	tenant.Spec.Webhooks = nil
+	if err := env.Client.Patch(context.Background(), tenant, patch); err != nil {
+		t.Fatalf("removing webhooks: %v", err)
+	}
+	tenant = waitReady(t, tenant)
+
+	if len(tenant.Status.Webhooks) != 0 {
+		t.Errorf("status.webhooks = %+v, want empty", tenant.Status.Webhooks)
+	}
+	if _, err := s.client.GetWebhook(context.Background(), tenant.Status.TenantID, "basic"); !errors.Is(err, hatchet.ErrNotFound) {
+		t.Errorf("GetWebhook after pruning: err = %v, want ErrNotFound", err)
+	}
+}
+
+func testWebhookDeletedWithTenant(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newWebhookTenant(t, "hooks-deleted", "s3cret"))
+
+	deleteTenant(t, tenant)
+
+	if _, err := s.client.GetWebhook(context.Background(), tenant.Status.TenantID, "basic"); !errors.Is(err, hatchet.ErrNotFound) {
+		t.Errorf("GetWebhook after tenant deletion: err = %v, want ErrNotFound", err)
+	}
+}
+
+// newWebhookTenant creates a tenant with a basic-auth webhook named "basic" whose password is read from a Secret.
+func (s *suite) newWebhookTenant(t *testing.T, name, password string) *hatchetv1alpha1.HatchetTenant {
+	t.Helper()
+	ns := s.allowedNamespace(t)
+	mustCreate(t, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "webhook-creds", Namespace: ns},
+		Data:       map[string][]byte{"password": []byte(password)},
+	})
+	return s.newTenant(t, ns, name, func(tenant *hatchetv1alpha1.HatchetTenant) {
+		tenant.Spec.Webhooks = []hatchetv1alpha1.Webhook{{
+			Name:               "basic",
+			EventKeyExpression: "'it-event'",
+			Auth: hatchetv1alpha1.WebhookAuth{Basic: &hatchetv1alpha1.WebhookBasicAuth{
+				Username:          "hook",
+				PasswordSecretRef: hatchetv1alpha1.SecretKeyRef{Name: "webhook-creds", Key: "password"},
+			}},
+		}}
+	})
+}
+
+// postWebhook sends an event to the webhook receiver with basic auth and returns the status code.
+func (s *suite) postWebhook(t *testing.T, tenantID, name, password string) int {
+	t.Helper()
+	url := fmt.Sprintf("%s/api/v1/stable/tenants/%s/webhooks/%s", s.hatchet.APIURL, tenantID, name)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth("hook", password)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("calling webhook receiver: %v", err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
 }
 
 func testDisallowedNamespace(t *testing.T, s *suite) {

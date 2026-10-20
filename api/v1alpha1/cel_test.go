@@ -216,3 +216,44 @@ func TestTenantAcceptsTokenTTLOf8760h(t *testing.T) {
 	tenant.Spec.TokenTTL = &metav1.Duration{Duration: 8760 * time.Hour}
 	create(t, tenant)
 }
+
+func webhookSecretRef() v1alpha1.SecretKeyRef {
+	return v1alpha1.SecretKeyRef{Name: "creds", Key: "value"}
+}
+
+func webhookAuthMembers() (basic *v1alpha1.WebhookBasicAuth, apiKey *v1alpha1.WebhookAPIKeyAuth, hmac *v1alpha1.WebhookHMACAuth) {
+	return &v1alpha1.WebhookBasicAuth{Username: "u", PasswordSecretRef: webhookSecretRef()},
+		&v1alpha1.WebhookAPIKeyAuth{HeaderName: "X-Key", APIKeySecretRef: webhookSecretRef()},
+		&v1alpha1.WebhookHMACAuth{Algorithm: "SHA256", Encoding: "HEX", SignatureHeaderName: "X-Sig", SigningSecretRef: webhookSecretRef()}
+}
+
+func tenantWithWebhookAuth(auth v1alpha1.WebhookAuth) *v1alpha1.HatchetTenant {
+	tenant := newTenant(uniqueName("webhook"))
+	tenant.Spec.Webhooks = []v1alpha1.Webhook{{Name: "github", Source: "GITHUB", EventKeyExpression: "'github'", Auth: auth}}
+	return tenant
+}
+
+func TestTenantAcceptsWebhookWithOneAuthMember(t *testing.T) {
+	requireEnv(t)
+	basic, apiKey, hmac := webhookAuthMembers()
+	for name, auth := range map[string]v1alpha1.WebhookAuth{
+		"basic":  {Basic: basic},
+		"apiKey": {APIKey: apiKey},
+		"hmac":   {HMAC: hmac},
+	} {
+		t.Run(name, func(t *testing.T) { create(t, tenantWithWebhookAuth(auth)) })
+	}
+}
+
+func TestTenantRejectsWebhookWithoutAuthMember(t *testing.T) {
+	requireEnv(t)
+	err := k8s.Create(context.Background(), tenantWithWebhookAuth(v1alpha1.WebhookAuth{}))
+	requireRejected(t, err, "exactly one of basic, apiKey or hmac must be set")
+}
+
+func TestTenantRejectsWebhookWithTwoAuthMembers(t *testing.T) {
+	requireEnv(t)
+	basic, apiKey, _ := webhookAuthMembers()
+	err := k8s.Create(context.Background(), tenantWithWebhookAuth(v1alpha1.WebhookAuth{Basic: basic, APIKey: apiKey}))
+	requireRejected(t, err, "exactly one of basic, apiKey or hmac must be set")
+}

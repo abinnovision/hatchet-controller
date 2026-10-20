@@ -7,3 +7,21 @@ spec:
   instanceRef:
     name: hatchet
     namespace: hatchet
+  webhooks:
+    - name: github
+      source: GITHUB
+      eventKeyExpression: "'github:' + headers['x-github-event']"
+      auth:
+        hmac:
+          algorithm: SHA256
+          encoding: HEX
+          signatureHeaderName: X-Hub-Signature-256
+          signingSecretRef: {name: github-webhook, key: secret}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-webhook
+  namespace: hatchet
+stringData:
+  secret: change-me

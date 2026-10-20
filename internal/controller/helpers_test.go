@@ -7,6 +7,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	hatchetv1alpha1 "github.com/abinnovision/hatchet-controller/api/v1alpha1"
+	"github.com/abinnovision/hatchet-controller/internal/hatchet"
 )
 
 func TestTenantSlug(t *testing.T) {
@@ -96,5 +97,51 @@ func TestPolicyPorts(t *testing.T) {
 		if err != nil || engine != tt.engine || api != tt.api {
 			t.Errorf("%s: policyPorts = %d, %d, %v, want %d, %d", tt.name, engine, api, err, tt.engine, tt.api)
 		}
+	}
+}
+
+func TestFingerprint(t *testing.T) {
+	key := []byte("signing-key")
+	base := fingerprint(key, "GITHUB", "HMAC", "SHA256", "value")
+	if got := fingerprint(key, "GITHUB", "HMAC", "SHA256", "value"); got != base {
+		t.Errorf("fingerprint is not stable: %q != %q", got, base)
+	}
+	if fingerprint([]byte("other-key"), "GITHUB", "HMAC", "SHA256", "value") == base {
+		t.Error("fingerprint ignores a change of key")
+	}
+	for name, parts := range map[string][]string{
+		"credential value": {"GITHUB", "HMAC", "SHA256", "other"},
+		"auth field":       {"GITHUB", "HMAC", "SHA512", "value"},
+		"source":           {"STRIPE", "HMAC", "SHA256", "value"},
+		"part boundary":    {"GITHUBHMAC", "", "SHA256", "value"},
+	} {
+		if fingerprint(key, parts...) == base {
+			t.Errorf("fingerprint ignores a change of %s", name)
+		}
+	}
+}
+
+func TestWebhookNeedsUpdate(t *testing.T) {
+	base := hatchet.Webhook{EventKeyExpression: "'e'", ScopeExpression: "'s'", StaticPayload: map[string]any{"a": "b"}}
+	tests := []struct {
+		name string
+		mod  func(*hatchet.Webhook)
+		want bool
+	}{
+		{"equal", func(*hatchet.Webhook) {}, false},
+		{"event key", func(w *hatchet.Webhook) { w.EventKeyExpression = "'x'" }, true},
+		{"scope", func(w *hatchet.Webhook) { w.ScopeExpression = "" }, true},
+		{"payload", func(w *hatchet.Webhook) { w.StaticPayload = map[string]any{"a": "c"} }, true},
+		{"payload removed", func(w *hatchet.Webhook) { w.StaticPayload = nil }, true},
+	}
+	for _, tt := range tests {
+		got := base
+		tt.mod(&got)
+		if n := webhookNeedsUpdate(base, got); n != tt.want {
+			t.Errorf("%s: webhookNeedsUpdate = %v, want %v", tt.name, n, tt.want)
+		}
+	}
+	if webhookNeedsUpdate(hatchet.Webhook{EventKeyExpression: "e"}, hatchet.Webhook{EventKeyExpression: "e", StaticPayload: map[string]any{}}) {
+		t.Error("nil and empty payloads should be equal")
 	}
 }

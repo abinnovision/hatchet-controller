@@ -165,7 +165,7 @@ func (r *HatchetTenantReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return result, nil
 }
 
-// reconcile runs the Accepted, binding, token and NetworkPolicy steps.
+// reconcile runs the Accepted, binding, token, NetworkPolicy and webhook steps.
 func (r *HatchetTenantReconciler) reconcile(ctx context.Context, tenant *hatchetv1alpha1.HatchetTenant,
 	instance *hatchetv1alpha1.HatchetInstance) (ctrl.Result, error) {
 	if err := r.accept(ctx, tenant, instance); err != nil {
@@ -193,6 +193,11 @@ func (r *HatchetTenantReconciler) reconcile(ctx context.Context, tenant *hatchet
 		if requeueAfter, err := r.ensureNetworkPolicy(ctx, tenant, instance); err != nil || requeueAfter > 0 {
 			return ctrl.Result{RequeueAfter: requeueAfter}, err
 		}
+	}
+
+	// A webhook failure does not block the worker Secret above.
+	if err := r.ensureWebhooks(ctx, hc, tenant, instance); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	setCondition(&tenant.Status.Conditions, tenant.Generation, hatchetv1alpha1.ConditionReady, true,
@@ -501,7 +506,7 @@ func (r *HatchetTenantReconciler) ensureNetworkPolicy(ctx context.Context, tenan
 	return requeueAfter, ownershipCondition(err)
 }
 
-// reconcileDelete revokes the CR's tokens and releases the finalizer.
+// reconcileDelete revokes the CR's tokens, deletes its webhooks and releases the finalizer.
 func (r *HatchetTenantReconciler) reconcileDelete(ctx context.Context, tenant *hatchetv1alpha1.HatchetTenant,
 	instance *hatchetv1alpha1.HatchetInstance) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(tenant, hatchetv1alpha1.TenantFinalizer) {
@@ -517,7 +522,7 @@ func (r *HatchetTenantReconciler) reconcileDelete(ctx context.Context, tenant *h
 				message := "token revocation failed; delete the HatchetInstance or remove the finalizer to give up"
 				var cerr *conditionError
 				if errors.As(err, &cerr) {
-					message = cerr.message
+					message = cerr.message + "; delete the HatchetInstance or remove the finalizer to give up"
 				}
 				setCondition(&tenant.Status.Conditions, tenant.Generation, hatchetv1alpha1.ConditionReady, false,
 					hatchetv1alpha1.ReasonRevocationFailed, message)
@@ -541,6 +546,11 @@ func (r *HatchetTenantReconciler) revokeAll(ctx context.Context, tenant *hatchet
 	}
 	if err := r.revokeTokens(ctx, hc, tenant, ""); err != nil {
 		return hatchetError(err)
+	}
+	for _, w := range tenant.Status.Webhooks {
+		if err := hc.DeleteWebhook(ctx, tenant.Status.TenantID, w.Name); err != nil && !errors.Is(err, hatchet.ErrNotFound) {
+			return webhookError(w.Name, err)
+		}
 	}
 	return nil
 }
