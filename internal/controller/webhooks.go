@@ -34,7 +34,7 @@ func (r *HatchetTenantReconciler) ensureWebhooks(ctx context.Context, hc hatchet
 	var first error
 	retry := false
 	fail := func(name string, err error) {
-		err = webhookError(name, err)
+		err = scopedError("webhook "+name, hatchetv1alpha1.ReasonWebhookFailed, err)
 		var cerr *conditionError
 		retry = retry || !errors.As(err, &cerr) || cerr.retry
 		if first == nil {
@@ -210,16 +210,17 @@ func webhookNeedsUpdate(want, got hatchet.Webhook) bool {
 	return want.EventKeyExpression != got.EventKeyExpression || want.ScopeExpression != got.ScopeExpression || !samePayload
 }
 
-// webhookError names the webhook in a conditionError message; other errors are wrapped as they are.
-func webhookError(name string, err error) error {
+// scopedError prefixes label to a conditionError message and replaces the generic HatchetError reason with reason;
+// other errors are wrapped as they are.
+func scopedError(label, reason string, err error) error {
 	var cerr *conditionError
 	if !errors.As(err, &cerr) {
-		return fmt.Errorf("webhook %s: %w", name, err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	out := *cerr
-	out.message = fmt.Sprintf("webhook %s: %s", name, cerr.message)
+	out.message = fmt.Sprintf("%s: %s", label, cerr.message)
 	if out.reason == hatchetv1alpha1.ReasonHatchetError {
-		out.reason = hatchetv1alpha1.ReasonWebhookFailed
+		out.reason = reason
 	}
 	return &out
 }

@@ -60,6 +60,14 @@ func TestHatchet(t *testing.T) {
 				{"WebhookSecretRotationRecreates", testWebhookSecretRotation},
 				{"RemovedWebhookIsPruned", testWebhookPruned},
 				{"DeletedTenantDeletesWebhooks", testWebhookDeletedWithTenant},
+				{"MemberIsInvited", testMemberInvited},
+				{"InviteRoleChangeUpdatesInvite", testInviteRoleUpdate},
+				{"RemovedMemberInviteIsDeleted", testMemberInviteRemoved},
+				{"UntrackedInviteIsNotPruned", testUntrackedInviteKept},
+				{"DeletedTenantDeletesInvites", testInvitesDeletedWithTenant},
+				{"AcceptedInviteBecomesMember", testAcceptedInviteBecomesMember},
+				{"MemberRoleChangeUpdatesMember", testMemberRoleUpdate},
+				{"RemovedMemberIsRemoved", testMemberRemoved},
 				{"DisallowedNamespaceIsNotAccepted", testDisallowedNamespace},
 				// Last: changes the shared instance spec.
 				{"NetworkPolicyUsesPortOverrides", testNetworkPolicyPorts},
@@ -599,6 +607,200 @@ func (s *suite) postWebhook(t *testing.T, tenantID, name, password string) int {
 	}
 	_ = resp.Body.Close()
 	return resp.StatusCode
+}
+
+func testMemberInvited(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newMemberTenant(t, "members-invited", "alice@example.com", "MEMBER"))
+
+	invite := s.invite(t, tenant.Status.TenantID, "alice@example.com")
+	if invite == nil || invite.Role != "MEMBER" {
+		t.Errorf("invite = %+v, want a MEMBER invite", invite)
+	}
+	if len(tenant.Status.Members) != 1 || tenant.Status.Members[0].Email != "alice@example.com" ||
+		tenant.Status.Members[0].State != hatchetv1alpha1.MemberStateInvited || tenant.Status.Members[0].InviteExpiresAt == nil {
+		t.Errorf("status.members = %+v", tenant.Status.Members)
+	}
+}
+
+func testInviteRoleUpdate(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newMemberTenant(t, "members-invite-role", "alice@example.com", "MEMBER"))
+
+	s.setMemberRole(t, tenant, "ADMIN")
+	tenant = waitReady(t, tenant)
+
+	invites := s.invites(t, tenant.Status.TenantID, "alice@example.com")
+	if len(invites) != 1 || invites[0].Role != "ADMIN" {
+		t.Errorf("invites = %+v, want one ADMIN invite", invites)
+	}
+}
+
+func testMemberInviteRemoved(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newMemberTenant(t, "members-removed", "alice@example.com", "MEMBER"))
+
+	patch := client.MergeFrom(tenant.DeepCopy())
+	tenant.Spec.Members = nil
+	if err := env.Client.Patch(context.Background(), tenant, patch); err != nil {
+		t.Fatalf("removing members: %v", err)
+	}
+	tenant = waitReady(t, tenant)
+
+	if len(tenant.Status.Members) != 0 {
+		t.Errorf("status.members = %+v, want empty", tenant.Status.Members)
+	}
+	if invites := s.invites(t, tenant.Status.TenantID, "alice@example.com"); len(invites) != 0 {
+		t.Errorf("invites = %+v, want none", invites)
+	}
+}
+
+func testUntrackedInviteKept(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newMemberTenant(t, "members-untracked", "alice@example.com", "MEMBER"))
+	id := tenant.Status.TenantID
+	if err := s.client.CreateInvite(context.Background(), id, "bob@example.com", "MEMBER"); err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+
+	bump(t, tenant)
+	tenant = waitReady(t, tenant)
+
+	if invites := s.invites(t, id, "bob@example.com"); len(invites) != 1 {
+		t.Errorf("untracked invites = %+v, want 1", invites)
+	}
+	if len(tenant.Status.Members) != 1 {
+		t.Errorf("status.members = %+v, want only alice", tenant.Status.Members)
+	}
+}
+
+func testInvitesDeletedWithTenant(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newMemberTenant(t, "members-deleted", "alice@example.com", "MEMBER"))
+
+	deleteTenant(t, tenant)
+
+	if invites := s.invites(t, tenant.Status.TenantID, "alice@example.com"); len(invites) != 0 {
+		t.Errorf("invites after tenant deletion = %+v, want none", invites)
+	}
+}
+
+func testAcceptedInviteBecomesMember(t *testing.T, s *suite) {
+	tenant := s.acceptedMember(t, "members-accepted", "accepted@example.com")
+
+	if got := tenant.Status.Members; len(got) != 1 || got[0].State != hatchetv1alpha1.MemberStateMember || got[0].InviteExpiresAt != nil {
+		t.Errorf("status.members = %+v, want one Member", got)
+	}
+	if member := s.member(t, tenant.Status.TenantID, "accepted@example.com"); member == nil || member.Role != "MEMBER" {
+		t.Errorf("member = %+v, want a MEMBER", member)
+	}
+}
+
+func testMemberRoleUpdate(t *testing.T, s *suite) {
+	tenant := s.acceptedMember(t, "members-role", "role@example.com")
+
+	s.setMemberRole(t, tenant, "ADMIN")
+	tenant = waitReady(t, tenant)
+
+	if member := s.member(t, tenant.Status.TenantID, "role@example.com"); member == nil || member.Role != "ADMIN" {
+		t.Errorf("member = %+v, want an ADMIN", member)
+	}
+}
+
+func testMemberRemoved(t *testing.T, s *suite) {
+	tenant := s.acceptedMember(t, "members-leave", "leave@example.com")
+
+	patch := client.MergeFrom(tenant.DeepCopy())
+	tenant.Spec.Members = nil
+	if err := env.Client.Patch(context.Background(), tenant, patch); err != nil {
+		t.Fatalf("removing members: %v", err)
+	}
+	tenant = waitReady(t, tenant)
+
+	if len(tenant.Status.Members) != 0 {
+		t.Errorf("status.members = %+v, want empty", tenant.Status.Members)
+	}
+	if member := s.member(t, tenant.Status.TenantID, "leave@example.com"); member != nil {
+		t.Errorf("member = %+v, want removed", member)
+	}
+}
+
+// newMemberTenant creates a tenant with one member.
+func (s *suite) newMemberTenant(t *testing.T, name, email, role string) *hatchetv1alpha1.HatchetTenant {
+	t.Helper()
+	return s.newTenant(t, s.allowedNamespace(t), name, func(tenant *hatchetv1alpha1.HatchetTenant) {
+		tenant.Spec.Members = []hatchetv1alpha1.Member{{Email: email, Role: role}}
+	})
+}
+
+// acceptedMember creates a tenant inviting email, accepts the invite as that user and waits until status shows a Member.
+func (s *suite) acceptedMember(t *testing.T, name, email string) *hatchetv1alpha1.HatchetTenant {
+	t.Helper()
+	tenant := waitReady(t, s.newMemberTenant(t, name, email, "MEMBER"))
+	invite := s.invite(t, tenant.Status.TenantID, email)
+	if invite == nil {
+		t.Fatalf("no invite for %s", email)
+	}
+	if err := s.hatchet.AcceptInvite(context.Background(), email, invite.ID); err != nil {
+		t.Fatalf("accepting invite: %v", err)
+	}
+	// The acceptance happens outside Kubernetes; force the reconcile the periodic recheck would run.
+	bump(t, tenant)
+	eventually(t, func() error {
+		if err := env.Client.Get(context.Background(), client.ObjectKeyFromObject(tenant), tenant); err != nil {
+			return err
+		}
+		if len(tenant.Status.Members) != 1 || tenant.Status.Members[0].State != hatchetv1alpha1.MemberStateMember {
+			return fmt.Errorf("status.members = %+v, want one Member", tenant.Status.Members)
+		}
+		return nil
+	})
+	return waitReady(t, tenant)
+}
+
+// setMemberRole sets the role of the tenant's only member.
+func (s *suite) setMemberRole(t *testing.T, tenant *hatchetv1alpha1.HatchetTenant, role string) {
+	t.Helper()
+	patch := client.MergeFrom(tenant.DeepCopy())
+	tenant.Spec.Members[0].Role = role
+	if err := env.Client.Patch(context.Background(), tenant, patch); err != nil {
+		t.Fatalf("patching member role: %v", err)
+	}
+}
+
+// invites returns the pending invites of the email.
+func (s *suite) invites(t *testing.T, tenantID, email string) []hatchet.Invite {
+	t.Helper()
+	all, err := s.client.ListInvites(context.Background(), tenantID)
+	if err != nil {
+		t.Fatalf("ListInvites: %v", err)
+	}
+	var out []hatchet.Invite
+	for _, i := range all {
+		if i.Email == email {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// invite returns the first pending invite of the email, or nil.
+func (s *suite) invite(t *testing.T, tenantID, email string) *hatchet.Invite {
+	t.Helper()
+	if invites := s.invites(t, tenantID, email); len(invites) > 0 {
+		return &invites[0]
+	}
+	return nil
+}
+
+// member returns the tenant member with the email, or nil.
+func (s *suite) member(t *testing.T, tenantID, email string) *hatchet.Member {
+	t.Helper()
+	members, err := s.client.ListMembers(context.Background(), tenantID)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	for _, m := range members {
+		if m.Email == email {
+			return &m
+		}
+	}
+	return nil
 }
 
 func testDisallowedNamespace(t *testing.T, s *suite) {

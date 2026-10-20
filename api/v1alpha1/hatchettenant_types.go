@@ -52,6 +52,28 @@ type HatchetTenantSpec struct {
 	// +kubebuilder:validation:MaxItems=32
 	// +optional
 	Webhooks []Webhook `json:"webhooks,omitempty"`
+
+	// Members are people invited to the tenant. The controller only manages members it invited.
+	// +listType=map
+	// +listMapKey=email
+	// +kubebuilder:validation:MaxItems=100
+	// +optional
+	Members []Member `json:"members,omitempty"`
+}
+
+// Member is a person invited to the Hatchet tenant.
+type Member struct {
+	// Email of the person; it must be lowercase because Hatchet compares invite emails exactly.
+	// +kubebuilder:validation:MaxLength=254
+	// +kubebuilder:validation:Pattern=`^[^A-Z\s@]+@[^A-Z\s@]+\.[^A-Z\s@]+$`
+	// +kubebuilder:validation:XValidation:rule="self == self.lowerAscii()",message="email must be lowercase"
+	Email string `json:"email"`
+
+	// Role of the person in the tenant; VIEWER needs Hatchet v0.112 or newer.
+	// +kubebuilder:validation:Enum=OWNER;ADMIN;MEMBER;VIEWER
+	// +kubebuilder:default=MEMBER
+	// +optional
+	Role string `json:"role,omitempty"`
 }
 
 // Webhook is an incoming Hatchet webhook. Credentials are read from Secrets in the tenant's namespace.
@@ -175,6 +197,12 @@ type HatchetTenantStatus struct {
 	// +optional
 	Webhooks []WebhookStatus `json:"webhooks,omitempty"`
 
+	// Members are the people the controller invited, which it may update and remove.
+	// +listType=map
+	// +listMapKey=email
+	// +optional
+	Members []MemberStatus `json:"members,omitempty"`
+
 	// Conditions describe the current state.
 	// +listType=map
 	// +listMapKey=type
@@ -190,6 +218,26 @@ type WebhookStatus struct {
 	// Fingerprint identifies the source and auth the webhook was created with; it is a keyed hash and holds no secret material.
 	Fingerprint string `json:"fingerprint"`
 }
+
+// MemberStatus records a person invited by the controller.
+type MemberStatus struct {
+	// Email of the person.
+	Email string `json:"email"`
+
+	// State is Invited while the invite is pending and Member once it was accepted.
+	// +kubebuilder:validation:Enum=Invited;Member
+	State string `json:"state"`
+
+	// InviteExpiresAt is the expiry of the pending invite; it is only set while invited.
+	// +optional
+	InviteExpiresAt *metav1.Time `json:"inviteExpiresAt,omitempty"`
+}
+
+// Member states.
+const (
+	MemberStateInvited = "Invited"
+	MemberStateMember  = "Member"
+)
 
 // HatchetTenant declares a Hatchet tenant and its worker credential Secret.
 // +kubebuilder:object:root=true

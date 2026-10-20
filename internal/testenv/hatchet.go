@@ -199,6 +199,18 @@ func (h *Hatchet) AddMember(ctx context.Context, tenantID, userID string) error 
 	return err
 }
 
+// AcceptInvite registers a user with the invited email, whose address Hatchet marks verified, and accepts the invite as that user.
+func (h *Hatchet) AcceptInvite(ctx context.Context, email, inviteID string) error {
+	resp, err := h.post(ctx, "/api/v1/users/register", nil, map[string]string{"name": "Invitee", "email": email, "password": adminPassword})
+	if err != nil {
+		return fmt.Errorf("register: %w", err)
+	}
+	if _, err := h.post(ctx, "/api/v1/users/invites/accept", resp.Cookies(), map[string]string{"invite": inviteID}); err != nil {
+		return fmt.Errorf("accepting invite: %w", err)
+	}
+	return nil
+}
+
 // CreateTenantAsAdmin logs in the seeded admin with a cookie and creates a tenant.
 func (h *Hatchet) CreateTenantAsAdmin(ctx context.Context, name, slug string) (string, error) {
 	resp, err := h.post(ctx, "/api/v1/users/login", nil, map[string]string{"email": h.AdminEmail, "password": h.AdminPassword})

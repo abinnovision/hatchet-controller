@@ -62,6 +62,21 @@ type WebhookAuth struct {
 	SigningSecret       string
 }
 
+// Member is a tenant member. Hatchet does not return the user ID.
+type Member struct {
+	ID    string
+	Email string
+	Role  string
+}
+
+// Invite is a pending, unexpired tenant invite.
+type Invite struct {
+	ID      string
+	Email   string
+	Role    string
+	Expires time.Time
+}
+
 // Client covers the Hatchet API calls the controller needs.
 type Client interface {
 	// CreateTenant creates a tenant owned by the service user.
@@ -82,6 +97,20 @@ type Client interface {
 	UpdateWebhook(ctx context.Context, tenantID, name, eventKeyExpression, scopeExpression string, staticPayload map[string]any) error
 	// DeleteWebhook deletes an incoming webhook of the tenant.
 	DeleteWebhook(ctx context.Context, tenantID, name string) error
+	// ListMembers lists the members of the tenant.
+	ListMembers(ctx context.Context, tenantID string) ([]Member, error)
+	// UpdateMember sets the role of a member.
+	UpdateMember(ctx context.Context, tenantID, memberID, role string) error
+	// DeleteMember removes a member from the tenant.
+	DeleteMember(ctx context.Context, tenantID, memberID string) error
+	// ListInvites lists the pending invites of the tenant.
+	ListInvites(ctx context.Context, tenantID string) ([]Invite, error)
+	// CreateInvite invites an email to the tenant.
+	CreateInvite(ctx context.Context, tenantID, email, role string) error
+	// UpdateInvite sets the role of a pending invite.
+	UpdateInvite(ctx context.Context, tenantID, inviteID, role string) error
+	// DeleteInvite deletes a pending invite.
+	DeleteInvite(ctx context.Context, tenantID, inviteID string) error
 }
 
 // TokenSource signs exchange JWTs; keyset.Signer implements it.
@@ -100,7 +129,7 @@ var (
 )
 
 // Error is a failed Hatchet call. Message is safe for status conditions: the parsed
-// errors[].description truncated to about 256 characters, or only the status code.
+// errors[].description or top-level description truncated to about 256 characters, or only the status code.
 type Error struct {
 	StatusCode int
 	Message    string
@@ -275,6 +304,76 @@ func (c *client) DeleteWebhook(ctx context.Context, tenantID, name string) error
 	return c.do(ctx, http.MethodDelete, webhooksPath(tenantID)+"/"+url.PathEscape(name), tenantID, nil, nil)
 }
 
+func tenantPath(tenantID, collection string) string {
+	return "/api/v1/tenants/" + url.PathEscape(tenantID) + "/" + collection
+}
+
+func (c *client) ListMembers(ctx context.Context, tenantID string) ([]Member, error) {
+	var out struct {
+		Rows []struct {
+			Metadata struct {
+				ID string `json:"id"`
+			} `json:"metadata"`
+			User struct {
+				Email string `json:"email"`
+			} `json:"user"`
+			Role string `json:"role"`
+		} `json:"rows"`
+	}
+	if err := c.do(ctx, http.MethodGet, tenantPath(tenantID, "members"), tenantID, nil, &out); err != nil {
+		return nil, err
+	}
+	members := make([]Member, 0, len(out.Rows))
+	for _, r := range out.Rows {
+		members = append(members, Member{ID: r.Metadata.ID, Email: r.User.Email, Role: r.Role})
+	}
+	return members, nil
+}
+
+func (c *client) UpdateMember(ctx context.Context, tenantID, memberID, role string) error {
+	path := tenantPath(tenantID, "members") + "/" + url.PathEscape(memberID)
+	return c.do(ctx, http.MethodPatch, path, tenantID, map[string]string{"role": role}, nil)
+}
+
+func (c *client) DeleteMember(ctx context.Context, tenantID, memberID string) error {
+	return c.do(ctx, http.MethodDelete, tenantPath(tenantID, "members")+"/"+url.PathEscape(memberID), tenantID, nil, nil)
+}
+
+func (c *client) ListInvites(ctx context.Context, tenantID string) ([]Invite, error) {
+	var out struct {
+		Rows []struct {
+			Metadata struct {
+				ID string `json:"id"`
+			} `json:"metadata"`
+			Email   string    `json:"email"`
+			Role    string    `json:"role"`
+			Expires time.Time `json:"expires"`
+		} `json:"rows"`
+	}
+	if err := c.do(ctx, http.MethodGet, tenantPath(tenantID, "invites"), tenantID, nil, &out); err != nil {
+		return nil, err
+	}
+	invites := make([]Invite, 0, len(out.Rows))
+	for _, r := range out.Rows {
+		invites = append(invites, Invite{ID: r.Metadata.ID, Email: r.Email, Role: r.Role, Expires: r.Expires})
+	}
+	return invites, nil
+}
+
+func (c *client) CreateInvite(ctx context.Context, tenantID, email, role string) error {
+	body := map[string]string{"email": email, "role": role}
+	return c.do(ctx, http.MethodPost, tenantPath(tenantID, "invites"), tenantID, body, nil)
+}
+
+func (c *client) UpdateInvite(ctx context.Context, tenantID, inviteID, role string) error {
+	path := tenantPath(tenantID, "invites") + "/" + url.PathEscape(inviteID)
+	return c.do(ctx, http.MethodPatch, path, tenantID, map[string]string{"role": role}, nil)
+}
+
+func (c *client) DeleteInvite(ctx context.Context, tenantID, inviteID string) error {
+	return c.do(ctx, http.MethodDelete, tenantPath(tenantID, "invites")+"/"+url.PathEscape(inviteID), tenantID, nil, nil)
+}
+
 // do sends an exchange-token request and decodes a 2xx JSON response into out, if non-nil.
 func (c *client) do(ctx context.Context, method, path, tenantID string, in, out any) error {
 	jwt, err := c.signer.Sign(c.serviceUserID, tenantID, time.Now())
@@ -328,12 +427,16 @@ func newError(status int, body []byte) *Error {
 	var desc string
 	if status < 500 {
 		var parsed struct {
-			Errors []struct {
+			Description string `json:"description"`
+			Errors      []struct {
 				Description string `json:"description"`
 			} `json:"errors"`
 		}
-		if json.Unmarshal(body, &parsed) == nil && len(parsed.Errors) > 0 {
-			desc = parsed.Errors[0].Description
+		if json.Unmarshal(body, &parsed) == nil {
+			desc = parsed.Description
+			if len(parsed.Errors) > 0 {
+				desc = parsed.Errors[0].Description
+			}
 		}
 		if desc != "" {
 			e.Message = truncate(desc, maxMessageLen)
