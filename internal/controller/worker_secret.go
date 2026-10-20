@@ -24,6 +24,14 @@ func tenantSlug(tenant *hatchetv1alpha1.HatchetTenant) string {
 	return fmt.Sprintf("%s.%s-%s", tenant.Namespace, tenant.Name, uid)
 }
 
+// tenantDisplayName returns spec.displayName, or <namespace>/<name> when it is empty.
+func tenantDisplayName(tenant *hatchetv1alpha1.HatchetTenant) string {
+	if tenant.Spec.DisplayName != "" {
+		return tenant.Spec.DisplayName
+	}
+	return tenant.Namespace + "/" + tenant.Name
+}
+
 // inheritAllowed reports whether a tenant with slug may be inherited by a CR in namespace:
 // controller-format slugs must carry the namespace prefix, other (manual) slugs are accepted.
 func inheritAllowed(slug, namespace string) bool {

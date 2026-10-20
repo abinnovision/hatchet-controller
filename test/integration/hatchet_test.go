@@ -42,6 +42,7 @@ func TestHatchet(t *testing.T) {
 				{"TenantCreatesSecretWithWorkingToken", testTenantCreatesSecretWithWorkingToken},
 				{"TenantSlugHasNamespaceNameAndUIDFormat", testTenantSlugFormat},
 				{"TenantIDAnnotationIsWrittenBack", testAnnotationWrittenBack},
+				{"DisplayNameDefaultsAndSyncs", testDisplayNameSync},
 				{"StatusLossRebindsFromAnnotation", testStatusLossRebinds},
 				{"RecreateFromManifestRebinds", testRecreateFromManifestRebinds},
 				{"RemovedAnnotationIsReAdded", testRemovedAnnotationReAdded},
@@ -206,6 +207,33 @@ func testTenantSlugFormat(t *testing.T, s *suite) {
 	}
 }
 
+func testDisplayNameSync(t *testing.T, s *suite) {
+	tenant := waitReady(t, s.newTenant(t, s.allowedNamespace(t), "display"))
+	s.requireHatchetName(t, tenant.Status.TenantID, tenant.Namespace+"/display")
+
+	patch := client.MergeFrom(tenant.DeepCopy())
+	tenant.Spec.DisplayName = "Renamed"
+	if err := env.Client.Patch(context.Background(), tenant, patch); err != nil {
+		t.Fatalf("patching tenant: %v", err)
+	}
+	s.requireHatchetName(t, tenant.Status.TenantID, "Renamed")
+}
+
+// requireHatchetName waits until the Hatchet tenant has the name.
+func (s *suite) requireHatchetName(t *testing.T, tenantID, name string) {
+	t.Helper()
+	eventually(t, func() error {
+		got, err := s.client.GetTenant(context.Background(), tenantID)
+		if err != nil {
+			return err
+		}
+		if got.Name != name {
+			return fmt.Errorf("hatchet name = %q, want %q", got.Name, name)
+		}
+		return nil
+	})
+}
+
 func testAnnotationWrittenBack(t *testing.T, s *suite) {
 	tenant := waitReady(t, s.newTenant(t, s.allowedNamespace(t), "writeback"))
 	if got := tenant.Annotations[hatchetv1alpha1.TenantIDAnnotation]; got == "" || got != tenant.Status.TenantID {
@@ -308,6 +336,7 @@ func testInheritManualTenant(t *testing.T, s *suite) {
 		t.Fatalf("status.tenantID = %q, want %q", tenant.Status.TenantID, id)
 	}
 	s.requireTokenValid(t, id, workerSecret(t, tenant).Data["HATCHET_CLIENT_TOKEN"])
+	s.requireHatchetName(t, id, tenant.Namespace+"/manual")
 }
 
 func testInheritForeignNamespaceRejected(t *testing.T, s *suite) {

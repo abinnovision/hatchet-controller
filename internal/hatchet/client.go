@@ -83,6 +83,8 @@ type Client interface {
 	CreateTenant(ctx context.Context, name, slug string) (Tenant, error)
 	// GetTenant returns a tenant the service user is a member of.
 	GetTenant(ctx context.Context, id string) (Tenant, error)
+	// UpdateTenantName renames a tenant.
+	UpdateTenantName(ctx context.Context, id, name string) error
 	// CreateAPIToken creates an API token in the tenant.
 	CreateAPIToken(ctx context.Context, tenantID, name string, expiresIn time.Duration) (Token, error)
 	// ListAPITokens lists non-revoked API tokens of the tenant, including expired ones.
@@ -192,6 +194,10 @@ func (c *client) GetTenant(ctx context.Context, id string) (Tenant, error) {
 		return Tenant{}, err
 	}
 	return out.tenant(), nil
+}
+
+func (c *client) UpdateTenantName(ctx context.Context, id, name string) error {
+	return c.do(ctx, http.MethodPatch, "/api/v1/tenants/"+url.PathEscape(id), id, map[string]string{"name": name}, nil)
 }
 
 func (c *client) CreateAPIToken(ctx context.Context, tenantID, name string, expiresIn time.Duration) (Token, error) {
