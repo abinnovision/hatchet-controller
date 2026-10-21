@@ -18,10 +18,12 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	hatchetv1alpha1 "github.com/abinnovision/hatchet-controller/api/v1alpha1"
 	"github.com/abinnovision/hatchet-controller/internal/hatchet"
@@ -29,6 +31,9 @@ import (
 
 // InstanceRefIndex is the HatchetTenant field index on spec.instanceRef, keyed "<namespace>/<name>".
 const InstanceRefIndex = "spec.instanceRef"
+
+// WebhookSecretIndex is the HatchetTenant field index on the Secret names referenced by spec.webhooks.
+const WebhookSecretIndex = "spec.webhooks.secretRefs"
 
 const (
 	// defaultTokenTTL applies when spec.tokenTTL is unset (the API server defaults it).
@@ -592,11 +597,35 @@ func (r *HatchetTenantReconciler) SetupWithManager(ctx context.Context, mgr ctrl
 		}); err != nil {
 		return err
 	}
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &hatchetv1alpha1.HatchetTenant{}, WebhookSecretIndex,
+		func(obj client.Object) []string {
+			return webhookSecretNames(obj.(*hatchetv1alpha1.HatchetTenant))
+		}); err != nil {
+		return err
+	}
+
+	// The manager cache only holds controller-labeled Secrets, so referenced Secrets are watched
+	// through a separate metadata-only cache that never stores Secret data.
+	secretCache, err := cache.New(mgr.GetConfig(), cache.Options{
+		Scheme:           mgr.GetScheme(),
+		Mapper:           mgr.GetRESTMapper(),
+		DefaultTransform: cache.TransformStripManagedFields(),
+	})
+	if err != nil {
+		return err
+	}
+	if err := mgr.Add(secretCache); err != nil {
+		return err
+	}
+	secretMeta := &metav1.PartialObjectMetadata{}
+	secretMeta.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("Secret"))
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&hatchetv1alpha1.HatchetTenant{}).
 		Owns(&corev1.Secret{}).
 		Watches(&hatchetv1alpha1.HatchetInstance{}, handler.EnqueueRequestsFromMapFunc(r.tenantsForInstance)).
+		WatchesRawSource(source.Kind[client.Object](secretCache, secretMeta,
+			handler.EnqueueRequestsFromMapFunc(r.tenantsForSecret))).
 		Named("hatchettenant")
 	if r.NetworkPolicyEnabled {
 		b = b.Owns(&networkingv1.NetworkPolicy{})
@@ -616,6 +645,37 @@ func (r *HatchetTenantReconciler) tenantsForInstance(ctx context.Context, obj cl
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&t)})
 	}
 	return requests
+}
+
+// tenantsForSecret maps a Secret to the HatchetTenants whose webhooks reference it.
+func (r *HatchetTenantReconciler) tenantsForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	var tenants hatchetv1alpha1.HatchetTenantList
+	if err := r.List(ctx, &tenants, client.InNamespace(obj.GetNamespace()),
+		client.MatchingFields{WebhookSecretIndex: obj.GetName()}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing tenants for secret")
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(tenants.Items))
+	for _, t := range tenants.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&t)})
+	}
+	return requests
+}
+
+// webhookSecretNames returns the names of the Secrets referenced by the tenant's webhooks.
+func webhookSecretNames(tenant *hatchetv1alpha1.HatchetTenant) []string {
+	var names []string
+	for _, w := range tenant.Spec.Webhooks {
+		switch a := w.Auth; {
+		case a.Basic != nil:
+			names = append(names, a.Basic.PasswordSecretRef.Name)
+		case a.APIKey != nil:
+			names = append(names, a.APIKey.APIKeySecretRef.Name)
+		case a.HMAC != nil:
+			names = append(names, a.HMAC.SigningSecretRef.Name)
+		}
+	}
+	return names
 }
 
 // isOwnershipError reports a conflict with a foreign object.

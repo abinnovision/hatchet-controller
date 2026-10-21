@@ -59,6 +59,7 @@ func TestHatchet(t *testing.T) {
 				{"WebhookIsCreatedAndAcceptsRequests", testWebhookCreated},
 				{"WebhookExpressionChangeUpdatesInPlace", testWebhookExpressionUpdate},
 				{"WebhookSecretRotationRecreates", testWebhookSecretRotation},
+				{"WebhookSecretCreatedLaterIsPickedUp", testWebhookSecretCreatedLater},
 				{"RemovedWebhookIsPruned", testWebhookPruned},
 				{"DeletedTenantDeletesWebhooks", testWebhookDeletedWithTenant},
 				{"MemberIsInvited", testMemberInvited},
@@ -554,9 +555,6 @@ func testWebhookSecretRotation(t *testing.T, s *suite) {
 	if err := env.Client.Patch(context.Background(), &secret, patch); err != nil {
 		t.Fatalf("rotating secret: %v", err)
 	}
-	// User Secrets are not watched; force the reconcile the periodic recheck would run.
-	bump(t, tenant)
-
 	eventually(t, func() error {
 		if code := s.postWebhook(t, id, "basic", "new-pass"); code != http.StatusOK {
 			return fmt.Errorf("receiver with the new password returned %d, want 200", code)
@@ -569,6 +567,20 @@ func testWebhookSecretRotation(t *testing.T, s *suite) {
 	tenant = waitReady(t, tenant)
 	if after := tenant.Status.Webhooks[0].Fingerprint; after == before {
 		t.Error("fingerprint did not change after the Secret rotation")
+	}
+}
+
+func testWebhookSecretCreatedLater(t *testing.T, s *suite) {
+	tenant := s.newWebhookTenant(t, "hooks-late-secret", "")
+	waitCondition(t, tenant, hatchetv1alpha1.ConditionReady, metav1.ConditionFalse, hatchetv1alpha1.ReasonInvalidSpec)
+
+	mustCreate(t, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "webhook-creds", Namespace: tenant.Namespace},
+		Data:       map[string][]byte{"password": []byte("s3cret")},
+	})
+	tenant = waitReady(t, tenant)
+	if code := s.postWebhook(t, tenant.Status.TenantID, "basic", "s3cret"); code != http.StatusOK {
+		t.Errorf("receiver returned %d, want 200", code)
 	}
 }
 
@@ -601,13 +613,16 @@ func testWebhookDeletedWithTenant(t *testing.T, s *suite) {
 }
 
 // newWebhookTenant creates a tenant with a basic-auth webhook named "basic" whose password is read from a Secret.
+// An empty password skips creating the Secret.
 func (s *suite) newWebhookTenant(t *testing.T, name, password string) *hatchetv1alpha1.HatchetTenant {
 	t.Helper()
 	ns := s.allowedNamespace(t)
-	mustCreate(t, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "webhook-creds", Namespace: ns},
-		Data:       map[string][]byte{"password": []byte(password)},
-	})
+	if password != "" {
+		mustCreate(t, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "webhook-creds", Namespace: ns},
+			Data:       map[string][]byte{"password": []byte(password)},
+		})
+	}
 	return s.newTenant(t, ns, name, func(tenant *hatchetv1alpha1.HatchetTenant) {
 		tenant.Spec.Webhooks = []hatchetv1alpha1.Webhook{{
 			Name:               "basic",
