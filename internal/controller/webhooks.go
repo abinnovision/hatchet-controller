@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -24,6 +25,13 @@ const (
 	authBasic  = "BASIC"
 	authAPIKey = "API_KEY"
 	authHMAC   = "HMAC"
+)
+
+// Svix HMAC settings sent to Hatchet when omitted. Hatchet ignores them for SVIX, but its API requires them.
+const (
+	svixAlgorithm       = "SHA256"
+	svixEncoding        = "BASE64"
+	svixSignatureHeader = "svix-signature"
 )
 
 // ensureWebhooks reconciles spec.webhooks against Hatchet and prunes webhooks removed from the spec.
@@ -161,7 +169,12 @@ func (r *HatchetTenantReconciler) resolveWebhook(ctx context.Context, namespace 
 	case a.HMAC != nil:
 		out.AuthType = authHMAC
 		out.Auth.Algorithm, out.Auth.Encoding, out.Auth.SignatureHeaderName = a.HMAC.Algorithm, a.HMAC.Encoding, a.HMAC.SignatureHeaderName
-		parts = append(parts, authHMAC, a.HMAC.Algorithm, a.HMAC.Encoding, a.HMAC.SignatureHeaderName)
+		if w.Source == "SVIX" {
+			out.Auth.Algorithm = cmp.Or(out.Auth.Algorithm, svixAlgorithm)
+			out.Auth.Encoding = cmp.Or(out.Auth.Encoding, svixEncoding)
+			out.Auth.SignatureHeaderName = cmp.Or(out.Auth.SignatureHeaderName, svixSignatureHeader)
+		}
+		parts = append(parts, authHMAC, out.Auth.Algorithm, out.Auth.Encoding, out.Auth.SignatureHeaderName)
 		out.Auth.SigningSecret, err = secret(a.HMAC.SigningSecretRef)
 	default:
 		err = &conditionError{reason: hatchetv1alpha1.ReasonInvalidSpec, message: "auth must set one of basic, apiKey or hmac"}

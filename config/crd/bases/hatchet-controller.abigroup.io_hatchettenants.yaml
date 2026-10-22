@@ -203,8 +203,9 @@ spec:
                           - username
                           type: object
                         hmac:
-                          description: WebhookHMACAuth authenticates requests with
-                            an HMAC signature of the body.
+                          description: |-
+                            WebhookHMACAuth authenticates requests with an HMAC signature of the body.
+                            Algorithm, encoding and signatureHeaderName are required unless the source is SVIX, which Hatchet verifies with fixed settings.
                           properties:
                             algorithm:
                               description: Algorithm is the HMAC hash.
@@ -244,9 +245,6 @@ spec:
                               - name
                               type: object
                           required:
-                          - algorithm
-                          - encoding
-                          - signatureHeaderName
                           - signingSecretRef
                           type: object
                       type: object
@@ -274,6 +272,7 @@ spec:
                     source:
                       default: GENERIC
                       description: Source selects the provider-specific payload handling.
+                        STRIPE, SLACK and SVIX require hmac auth.
                       enum:
                       - GENERIC
                       - GITHUB
@@ -292,6 +291,15 @@ spec:
                   - eventKeyExpression
                   - name
                   type: object
+                  x-kubernetes-validations:
+                  - message: auth must be hmac for STRIPE, SLACK and SVIX sources
+                    rule: '!has(self.source) || !(self.source in [''STRIPE'', ''SLACK'',
+                      ''SVIX'']) || has(self.auth.hmac)'
+                  - message: hmac requires algorithm, encoding and signatureHeaderName
+                      unless source is SVIX
+                    rule: '!has(self.auth.hmac) || (has(self.source) && self.source
+                      == ''SVIX'') || (has(self.auth.hmac.algorithm) && has(self.auth.hmac.encoding)
+                      && has(self.auth.hmac.signatureHeaderName))'
                 maxItems: 32
                 type: array
                 x-kubernetes-list-map-keys:

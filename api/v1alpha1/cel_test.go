@@ -258,6 +258,36 @@ func TestTenantRejectsWebhookWithTwoAuthMembers(t *testing.T) {
 	requireRejected(t, err, "exactly one of basic, apiKey or hmac must be set")
 }
 
+func tenantWithSourcedWebhook(source string, auth v1alpha1.WebhookAuth) *v1alpha1.HatchetTenant {
+	tenant := tenantWithWebhookAuth(auth)
+	tenant.Spec.Webhooks[0].Source = source
+	return tenant
+}
+
+func TestTenantRequiresHMACForSignedSources(t *testing.T) {
+	requireEnv(t)
+	basic, apiKey, hmac := webhookAuthMembers()
+	for _, source := range []string{"STRIPE", "SLACK", "SVIX"} {
+		t.Run(source, func(t *testing.T) {
+			for _, auth := range []v1alpha1.WebhookAuth{{Basic: basic}, {APIKey: apiKey}} {
+				err := k8s.Create(context.Background(), tenantWithSourcedWebhook(source, auth))
+				requireRejected(t, err, "auth must be hmac for STRIPE, SLACK and SVIX sources")
+			}
+			create(t, tenantWithSourcedWebhook(source, v1alpha1.WebhookAuth{HMAC: hmac}))
+		})
+	}
+}
+
+func TestTenantAllowsBareHMACOnlyForSvix(t *testing.T) {
+	requireEnv(t)
+	bare := &v1alpha1.WebhookHMACAuth{SigningSecretRef: webhookSecretRef()}
+	create(t, tenantWithSourcedWebhook("SVIX", v1alpha1.WebhookAuth{HMAC: bare}))
+	for _, source := range []string{"GENERIC", "GITHUB", "STRIPE"} {
+		err := k8s.Create(context.Background(), tenantWithSourcedWebhook(source, v1alpha1.WebhookAuth{HMAC: bare}))
+		requireRejected(t, err, "hmac requires algorithm, encoding and signatureHeaderName unless source is SVIX")
+	}
+}
+
 func TestTenantDefaultsMemberRole(t *testing.T) {
 	requireEnv(t)
 	tenant := newTenant(uniqueName("member"))
