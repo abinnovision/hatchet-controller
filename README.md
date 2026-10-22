@@ -133,7 +133,19 @@ spec:
           signingSecretRef: {name: github-webhook, key: secret}
 ```
 
-The receiver URL is `<public Hatchet URL>/api/v1/stable/tenants/<tenantID>/webhooks/<name>`. The tenant ID is in `status.tenantID`. `auth` takes exactly one of `basic`, `apiKey` or `hmac`. `source` defaults to `GENERIC`.
+The receiver URL is `<public Hatchet URL>/api/v1/stable/tenants/<tenantID>/webhooks/<name>`. The tenant ID is in `status.tenantID`. `auth` takes exactly one of `basic`, `apiKey` or `hmac`. `source` defaults to `GENERIC`. `hmac` needs `algorithm`, `encoding` and `signatureHeaderName`, except for `SVIX`.
+
+`STRIPE`, `SLACK` and `SVIX` webhooks are verified with each provider's own signature scheme, so they need `hmac`. These are the `hmac` settings for each provider, matching the presets in the Hatchet UI:
+
+| `source` | `algorithm` | `encoding` | `signatureHeaderName` | `signingSecretRef` holds |
+|---|---|---|---|---|
+| `GITHUB` | `SHA256` | `HEX` | `X-Hub-Signature-256` | the webhook secret |
+| `LINEAR` | `SHA256` | `HEX` | `linear-signature` | the webhook signing secret |
+| `STRIPE` | `SHA256` | `HEX` | `Stripe-Signature` | the endpoint signing secret (`whsec_...`) |
+| `SLACK` | `SHA256` | `HEX` | `X-Slack-Signature` | the app signing secret |
+| `SVIX` | omit | omit | omit | the endpoint secret (`whsec_...`) |
+
+For `SVIX`, the controller sends `SHA256`, `BASE64` and `svix-signature`, because Hatchet's API requires these fields even though it ignores them for Svix.
 
 - **Failures** show as `Ready=False/WebhookFailed`. A missing Secret or key shows `InvalidSpec`. Neither blocks the worker Secret.
 - **Expression and payload changes** (`eventKeyExpression`, `scopeExpression`, `staticPayload`) update the webhook in place.

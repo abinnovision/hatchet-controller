@@ -77,13 +77,15 @@ type Member struct {
 }
 
 // Webhook is an incoming Hatchet webhook. Credentials are read from Secrets in the tenant's namespace.
+// +kubebuilder:validation:XValidation:rule="!has(self.source) || !(self.source in ['STRIPE', 'SLACK', 'SVIX']) || has(self.auth.hmac)",message="auth must be hmac for STRIPE, SLACK and SVIX sources"
+// +kubebuilder:validation:XValidation:rule="!has(self.auth.hmac) || (has(self.source) && self.source == 'SVIX') || (has(self.auth.hmac.algorithm) && has(self.auth.hmac.encoding) && has(self.auth.hmac.signatureHeaderName))",message="hmac requires algorithm, encoding and signatureHeaderName unless source is SVIX"
 type Webhook struct {
 	// Name of the webhook; it is part of the receiver URL.
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Name string `json:"name"`
 
-	// Source selects the provider-specific payload handling.
+	// Source selects the provider-specific payload handling. STRIPE, SLACK and SVIX require hmac auth.
 	// +kubebuilder:validation:Enum=GENERIC;GITHUB;STRIPE;SLACK;LINEAR;SVIX
 	// +kubebuilder:default=GENERIC
 	// +optional
@@ -154,18 +156,22 @@ type WebhookAPIKeyAuth struct {
 }
 
 // WebhookHMACAuth authenticates requests with an HMAC signature of the body.
+// Algorithm, encoding and signatureHeaderName are required unless the source is SVIX, which Hatchet verifies with fixed settings.
 type WebhookHMACAuth struct {
 	// Algorithm is the HMAC hash.
 	// +kubebuilder:validation:Enum=SHA1;SHA256;SHA512;MD5
-	Algorithm string `json:"algorithm"`
+	// +optional
+	Algorithm string `json:"algorithm,omitempty"`
 
 	// Encoding is the signature encoding.
 	// +kubebuilder:validation:Enum=HEX;BASE64;BASE64URL
-	Encoding string `json:"encoding"`
+	// +optional
+	Encoding string `json:"encoding,omitempty"`
 
 	// SignatureHeaderName carries the signature.
 	// +kubebuilder:validation:MinLength=1
-	SignatureHeaderName string `json:"signatureHeaderName"`
+	// +optional
+	SignatureHeaderName string `json:"signatureHeaderName,omitempty"`
 
 	// SigningSecretRef selects the Secret key holding the signing secret.
 	SigningSecretRef SecretKeyRef `json:"signingSecretRef"`
