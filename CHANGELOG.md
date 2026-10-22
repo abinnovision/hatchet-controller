@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/abinnovision/hatchet-controller/compare/v0.2.0...v0.3.0) (2026-10-22)
+
+
+### Features
+
+* require hmac auth for Stripe, Slack and Svix webhooks ([#23](https://github.com/abinnovision/hatchet-controller/issues/23)) ([fb93373](https://github.com/abinnovision/hatchet-controller/commit/fb9337353f90d726a4f4d14400dd46d89392bf0d))
+
+
+### Bug Fixes
+
+* watch Secrets referenced by HatchetTenant webhooks ([#21](https://github.com/abinnovision/hatchet-controller/issues/21)) ([0be0c2b](https://github.com/abinnovision/hatchet-controller/commit/0be0c2b9cfb95683bcb2a06ade732182dfa15176))
+
 ## [0.2.0](https://github.com/abinnovision/hatchet-controller/compare/v0.1.0...v0.2.0) (2026-10-20)
 
 
