@@ -140,7 +140,7 @@ The receiver URL is `<public Hatchet URL>/api/v1/stable/tenants/<tenantID>/webho
 - **Source and credential changes** delete and re-create the webhook, because Hatchet cannot patch them. Requests get a 404 for a moment. A `WebhookRecreated` event is emitted.
 - **A failed re-create** leaves the webhook absent until the cause is fixed; `Ready=False` shows why.
 - **Pruning** only covers webhooks tracked in `status.webhooks`. Restoring a HatchetTenant without its status while removing an entry from `spec.webhooks` leaves that webhook in Hatchet.
-- **Rotating a credential Secret** (a changed value, not other Secret edits) is picked up within 5 minutes, because the controller does not watch these Secrets.
+- **Credential Secrets** are watched, so a rotated value or a Secret created after the `HatchetTenant` is picked up right away.
 - **Existing webhooks** with the same name that the controller did not create are replaced.
 - **Removing an entry** deletes the webhook in Hatchet. Deleting the `HatchetTenant` deletes all of its webhooks.
 
