@@ -53,7 +53,7 @@ spec:
     spec:
       containers:
         - name: hatchet-lite
-          image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.112.10
+          image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.113.3
           env:
             - {name: DATABASE_URL, value: "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"}
             - {name: SERVER_AUTH_COOKIE_DOMAIN, value: localhost}
