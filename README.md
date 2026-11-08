@@ -28,7 +28,7 @@ The worker Secret is named `<name>-hatchet` (override with `secretName`) and hol
 
 Requires self-hosted Hatchet v0.84.0 or newer. Hatchet Cloud is not supported.
 
-The controller relies on Hatchet's control-plane exchange tokens, an undocumented internal feature that any Hatchet release may change. Since v0.118.0, Hatchet refuses user login on any API that accepts exchange tokens, so the controller needs its own Hatchet API (step 4). Each change is tested against Hatchet v0.84.0, v0.98.12 and the latest tracked release. Pin your Hatchet version and test upgrades outside production first.
+The controller relies on Hatchet's control-plane exchange tokens, an undocumented internal feature that any Hatchet release may change. Since v0.118.0, Hatchet refuses user login on any API that accepts exchange tokens, so the controller needs its own Hatchet API (step 4). Each change is tested against the Hatchet releases in [`test/hatchet-versions`](test/hatchet-versions): the minimum supported version, the newest release, and the newest patches of the minors released 30 and 90 days ago. Each GitHub release lists the versions it was tested with. Pin your Hatchet version and test upgrades outside production first.
 
 ## Getting started
 
@@ -208,13 +208,20 @@ images:
 
 Betas pass the full test suite but may change the `v1alpha1` API without notice, so keep them out of production.
 
+### Support
+
+- Only the latest release receives fixes. There are no backports while the controller is `0.x`.
+- Breaking changes are marked with `!` in the commit title and bump the minor version. They include changes to the `v1alpha1` API, the worker Secret keys and the install requirements, and raising the minimum Hatchet version.
+- The minimum Hatchet version covers roughly the last six months of Hatchet releases. It is raised only when keeping it costs effort.
+- Supported Kubernetes versions are the minors that upstream still maintains.
+
 ## Development
 
 ```sh
 make build            # generate, manifests, compile
 make check            # lint, govulncheck, gofmt, generated files up to date
 make test-unit
-make test-integration # HATCHET_VERSIONS="v0.84.0 v0.98.12 v0.112.10"
+make test-integration # every version in test/hatchet-versions; override with HATCHET_VERSIONS="v0.84.0"
 make test-e2e         # needs Docker; uses kind
 make docker-build
 ```

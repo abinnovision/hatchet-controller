@@ -1,0 +1,129 @@
+# Keeps test/hatchet-versions current. Changes to the rolling section go through an auto-merging PR,
+# so the regular PR checks test them; a failing PR stays open. The minimum supported version is only
+# raised by hand, so an issue reports when it falls out of the support window.
+name: Hatchet Compat
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  VERSIONS_FILE: test/hatchet-versions
+
+jobs:
+  rolling:
+    name: Update rolling versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      BRANCH: ci/hatchet-compat
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - id: update
+        name: Update rolling versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          hack/hatchet-versions.sh "$VERSIONS_FILE"
+          git diff "$VERSIONS_FILE"
+          if ! git diff --quiet; then
+            echo "newest=$(awk '!/^#/ && NF {v = $1} END {print v}' "$VERSIONS_FILE")" >> "$GITHUB_OUTPUT"
+          fi
+
+      # PRs opened with GITHUB_TOKEN do not trigger CI, so the PR uses the broker token.
+      - id: token
+        if: steps.update.outputs.newest
+        name: Exchange token
+        uses: abinnovision/actions@exchange-github-token-v1.4.1
+        with:
+          broker-url: ${{ vars.TOKEN_BROKER_URL }}
+          scope: contents:write pull_requests:write
+
+      - name: Open or update PR
+        if: steps.update.outputs.newest
+        env:
+          NEWEST: ${{ steps.update.outputs.newest }}
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          GIT_AUTHOR_NAME: ${{ steps.token.outputs.committer-name }}
+          GIT_AUTHOR_EMAIL: ${{ steps.token.outputs.committer-email }}
+          GIT_COMMITTER_NAME: ${{ steps.token.outputs.committer-name }}
+          GIT_COMMITTER_EMAIL: ${{ steps.token.outputs.committer-email }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+
+          if [[ -n "$pr" ]] && git fetch --quiet "$remote" "$BRANCH" && git diff --quiet FETCH_HEAD -- "$VERSIONS_FILE"; then
+            echo "PR #$pr already has these versions"
+            gh pr merge "$pr" --auto --squash
+            exit 0
+          fi
+
+          title="test: track Hatchet releases up to $NEWEST"
+          diff=$(git diff -U0 "$VERSIONS_FILE" | tail -n +5)
+          body="Updates the rolling Hatchet releases in \`$VERSIONS_FILE\`. Merges automatically once the checks pass.
+
+          \`\`\`diff
+          $diff
+          \`\`\`"
+
+          git switch -c "$BRANCH"
+          git commit -am "$title"
+          git push --force "$remote" "$BRANCH"
+
+          if [[ -n "$pr" ]]; then
+            gh pr edit "$pr" --title "$title" --body "$body"
+          else
+            gh pr create --head "$BRANCH" --base main --title "$title" --body "$body" --label dependencies
+          fi
+          gh pr merge "$BRANCH" --auto --squash
+
+  minimum:
+    name: Check minimum version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    env:
+      MAX_AGE_DAYS: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Report an outdated minimum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          minimum=$(awk '!/^#/ && NF {print $1; exit}' "$VERSIONS_FILE")
+          released=$(gh api "repos/hatchet-dev/hatchet/commits/$minimum" --jq '.commit.committer.date | fromdateiso8601')
+          age=$(( ($(date +%s) - released) / 86400 ))
+          echo "Minimum $minimum is $age days old"
+
+          # One issue per minimum; closing it by hand keeps that minimum without further reports.
+          title="Hatchet minimum $minimum is older than $MAX_AGE_DAYS days"
+          if ((age <= MAX_AGE_DAYS)); then
+            for issue in $(gh issue list --state open --search "\"is older than $MAX_AGE_DAYS days\" in:title" --json number,title --jq '.[] | select(.title | startswith("Hatchet minimum ")) | .number'); do
+              gh issue close "$issue" --comment "The minimum is now $minimum."
+            done
+            exit 0
+          fi
+          if ! gh issue list --state all --search "\"$title\" in:title" --json title --jq '.[].title' | grep -qxF "$title"; then
+            gh issue create --title "$title" --body "Hatchet $minimum, the minimum supported version in \`$VERSIONS_FILE\`, was released $age days ago. Raise it in a \`feat!:\` PR, or keep it if supporting it costs nothing."
+          fi
