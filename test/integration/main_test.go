@@ -113,7 +113,7 @@ func setup(t *testing.T, version string) *suite {
 	s.hatchet = h
 
 	patch := client.MergeFrom(s.instance.DeepCopy())
-	s.instance.Spec.APIURL = h.APIURL
+	s.instance.Spec.APIURL = h.ExchangeAPIURL
 	s.instance.Spec.Worker.HostPort = h.GRPCHostPort
 	if err := env.Client.Patch(ctx, s.instance, patch); err != nil {
 		t.Fatalf("patching instance: %v", err)
@@ -127,7 +127,7 @@ func setup(t *testing.T, version string) *suite {
 	if err != nil {
 		t.Fatalf("loading signing key: %v", err)
 	}
-	s.client = hatchet.New(h.APIURL, signer, s.instance.Spec.ServiceUserID, http.DefaultClient)
+	s.client = hatchet.New(h.ExchangeAPIURL, signer, s.instance.Spec.ServiceUserID, http.DefaultClient)
 	return s
 }
 

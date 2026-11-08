@@ -63,6 +63,30 @@ spec:
             - {name: SERVER_GRPC_BROADCAST_ADDRESS, value: "hatchet-lite.hatchet.svc:7070"}
             - {name: SERVER_URL, value: "http://localhost:8888"}
             - {name: SERVER_AUTH_SET_EMAIL_VERIFIED, value: "t"}
+          ports:
+            - containerPort: 8888
+            - containerPort: 7070
+          readinessProbe:
+            httpGet: {path: /api/ready, port: 8888}
+            periodSeconds: 2
+          volumeMounts:
+            - {name: config, mountPath: /config}
+        # Hatchet v0.118+ refuses user login on an API that accepts exchange tokens, so the controller
+        # gets its own API. It starts once hatchet-lite is ready, reuses its generated config and uses
+        # ports hatchet-lite does not bind in the shared pod network. Keep its tag equal to hatchet-lite's.
+        - name: hatchet-exchange-api
+          image: ghcr.io/hatchet-dev/hatchet/hatchet-api:v0.112.10
+          command: [/bin/sh, -c, "until wget -qO /dev/null http://127.0.0.1:8888/api/ready; do sleep 1; done; exec /hatchet/hatchet-api --config /config"]
+          env:
+            - {name: DATABASE_URL, value: "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable"}
+            - {name: SERVER_PORT, value: "8090"}
+            - {name: SERVER_HEALTHCHECK_PORT, value: "8734"}
+            - {name: SERVER_MSGQUEUE_KIND, value: postgres}
+            - {name: SERVER_AUTH_COOKIE_DOMAIN, value: localhost}
+            - {name: SERVER_AUTH_COOKIE_INSECURE, value: "t"}
+            - {name: SERVER_GRPC_INSECURE, value: "t"}
+            - {name: SERVER_GRPC_BROADCAST_ADDRESS, value: "hatchet-lite.hatchet.svc:7070"}
+            - {name: SERVER_URL, value: "http://localhost:8888"}
             - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED, value: "t"}
             - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET
               valueFrom:
@@ -70,11 +94,14 @@ spec:
             - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER, value: hatchet-controller}
             - {name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE, value: hatchet}
           ports:
-            - containerPort: 8888
-            - containerPort: 7070
+            - containerPort: 8090
           readinessProbe:
-            httpGet: {path: /api/ready, port: 8888}
+            httpGet: {path: /api/ready, port: 8090}
             periodSeconds: 2
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+      volumes:
+        - {name: config, emptyDir: {}}
 ---
 apiVersion: v1
 kind: Service
@@ -86,6 +113,7 @@ spec:
   ports:
     - {name: http, port: 8888}
     - {name: grpc, port: 7070}
+    - {name: exchange, port: 8090}
 ---
 apiVersion: hatchet-controller.abigroup.io/v1alpha1
 kind: HatchetInstance
@@ -93,7 +121,7 @@ metadata:
   name: hatchet
   namespace: hatchet
 spec:
-  apiURL: http://hatchet-lite.hatchet.svc:8888
+  apiURL: http://hatchet-lite.hatchet.svc:8090
   serviceUserID: 6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b
   worker:
     hostPort: hatchet-lite.hatchet.svc:7070

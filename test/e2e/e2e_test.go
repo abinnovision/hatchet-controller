@@ -105,8 +105,8 @@ func goVersion(t *testing.T) string {
 	return ""
 }
 
-// TestSmoke deploys the controller with kustomize into kind, wires hatchet-lite to the
-// instance's keyset via secretKeyRef, waits for a tenant to become Ready and checks that
+// TestSmoke deploys the controller with kustomize into kind, wires the exchange-token Hatchet API to
+// the instance's keyset via secretKeyRef, waits for a tenant to become Ready and checks that
 // owned Secrets are garbage collected.
 func TestSmoke(t *testing.T) {
 	img := os.Getenv("IMG")
@@ -157,7 +157,7 @@ func TestSmoke(t *testing.T) {
 	run(t, manifests, "kubectl", "apply", "--server-side", "-f", "-")
 	kubectl(t, "-n", "hatchet-controller-system", "rollout", "status", "deployment/hatchet-controller-manager", "--timeout=3m")
 
-	// hatchet-lite waits on the keyset Secret the instance generates.
+	// The hatchet-lite pod waits on the keyset Secret the instance generates for its exchange-token API.
 	kubectl(t, "apply", "-f", "test/e2e/testdata/hatchet.yaml")
 	kubectl(t, "-n", "hatchet", "wait", "hatchetinstance/hatchet", "--for=condition=Ready", "--timeout=2m")
 	kubectl(t, "-n", "hatchet", "rollout", "status", "deployment/postgres", "--timeout=3m")

@@ -22,15 +22,21 @@ const (
 	PostgresImage = "postgres:15.6"
 	// HatchetLiteImage is the hatchet-lite image without tag.
 	HatchetLiteImage = "ghcr.io/hatchet-dev/hatchet/hatchet-lite"
+	// HatchetAPIImage is the hatchet-api image without tag.
+	HatchetAPIImage = "ghcr.io/hatchet-dev/hatchet/hatchet-api"
 
 	adminEmail    = "admin@example.com"
 	adminPassword = "Admin123!!"
 )
 
-// Hatchet is a running hatchet-lite with its Postgres.
+// Hatchet is a running hatchet-lite with its Postgres and a separate hatchet-api that accepts
+// exchange tokens. Hatchet v0.118+ refuses user login on an API that accepts exchange tokens, so
+// users and the controller use different APIs.
 type Hatchet struct {
-	// APIURL is the mapped HTTP base URL.
+	// APIURL is the mapped HTTP base URL of hatchet-lite, which serves users.
 	APIURL string
+	// ExchangeAPIURL is the mapped HTTP base URL of the hatchet-api that accepts exchange tokens.
+	ExchangeAPIURL string
 	// GRPCHostPort is the mapped gRPC address.
 	GRPCHostPort string
 	// AdminEmail and AdminPassword log in the seeded admin.
@@ -42,6 +48,7 @@ type Hatchet struct {
 	network  *testcontainers.DockerNetwork
 	postgres testcontainers.Container
 	lite     testcontainers.Container
+	api      testcontainers.Container
 }
 
 // HatchetOptions configures StartHatchet.
@@ -56,7 +63,8 @@ type HatchetOptions struct {
 	ServiceUserID string
 }
 
-// StartHatchet starts postgres and hatchet-lite on a shared network and waits for /api/ready.
+// StartHatchet starts postgres, hatchet-lite and the exchange-token hatchet-api on a shared network
+// and waits for /api/ready.
 // On error all started containers are terminated.
 func StartHatchet(ctx context.Context, opts HatchetOptions) (h *Hatchet, err error) {
 	h = &Hatchet{AdminEmail: adminEmail, AdminPassword: adminPassword}
@@ -87,27 +95,37 @@ func StartHatchet(ctx context.Context, opts HatchetOptions) (h *Hatchet, err err
 		return h, fmt.Errorf("starting postgres: %w", err)
 	}
 
+	env := map[string]string{
+		"DATABASE_URL":                   "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable",
+		"SERVER_AUTH_COOKIE_DOMAIN":      "localhost",
+		"SERVER_AUTH_COOKIE_INSECURE":    "t",
+		"SERVER_GRPC_INSECURE":           "t",
+		"SERVER_GRPC_BIND_ADDRESS":       "0.0.0.0",
+		"SERVER_GRPC_BROADCAST_ADDRESS":  "localhost:7070",
+		"SERVER_URL":                     "http://localhost:8888",
+		"SERVER_AUTH_SET_EMAIL_VERIFIED": "t",
+	}
+	liteEnv := map[string]string{"ADMIN_EMAIL": adminEmail, "ADMIN_PASSWORD": adminPassword}
+	// hatchet-lite switches its message queue to Postgres internally; hatchet-api needs it set.
+	apiEnv := map[string]string{
+		"SERVER_PORT":          "8080",
+		"SERVER_MSGQUEUE_KIND": "postgres",
+		"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED":           "t",
+		"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET": opts.PublicKeyset,
+		"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER":            "hatchet-controller",
+		"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE":          "hatchet",
+	}
+	for k, v := range env {
+		liteEnv[k] = v
+		apiEnv[k] = v
+	}
+
 	h.lite, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        HatchetLiteImage + ":" + opts.Version,
 			ExposedPorts: []string{"8888/tcp", "7070/tcp"},
 			Networks:     []string{h.network.Name},
-			Env: map[string]string{
-				"DATABASE_URL":                                     "postgresql://hatchet:hatchet@postgres:5432/hatchet?sslmode=disable",
-				"SERVER_AUTH_COOKIE_DOMAIN":                        "localhost",
-				"SERVER_AUTH_COOKIE_INSECURE":                      "t",
-				"SERVER_GRPC_INSECURE":                             "t",
-				"SERVER_GRPC_BIND_ADDRESS":                         "0.0.0.0",
-				"SERVER_GRPC_BROADCAST_ADDRESS":                    "localhost:7070",
-				"SERVER_URL":                                       "http://localhost:8888",
-				"SERVER_AUTH_SET_EMAIL_VERIFIED":                   "t",
-				"ADMIN_EMAIL":                                      adminEmail,
-				"ADMIN_PASSWORD":                                   adminPassword,
-				"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED": "t",
-				"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET": opts.PublicKeyset,
-				"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER":            "hatchet-controller",
-				"SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE":          "hatchet",
-			},
+			Env:          liteEnv,
 			WaitingFor: wait.ForHTTP("/api/ready").WithPort("8888/tcp").
 				WithStartupTimeout(4 * time.Minute),
 		},
@@ -115,6 +133,29 @@ func StartHatchet(ctx context.Context, opts HatchetOptions) (h *Hatchet, err err
 	})
 	if err != nil {
 		return h, fmt.Errorf("starting hatchet-lite %s: %w\n%s", opts.Version, err, logTail(ctx, h.lite))
+	}
+
+	// hatchet-api shares the config hatchet-lite generated, so both use the same keys.
+	files, err := h.liteConfig(ctx)
+	if err != nil {
+		return h, fmt.Errorf("reading hatchet-lite config: %w", err)
+	}
+	h.api, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:        HatchetAPIImage + ":" + opts.Version,
+			Entrypoint:   []string{"/hatchet/hatchet-api"},
+			Cmd:          []string{"--config", "/config"},
+			ExposedPorts: []string{"8080/tcp"},
+			Networks:     []string{h.network.Name},
+			Env:          apiEnv,
+			Files:        files,
+			WaitingFor: wait.ForHTTP("/api/ready").WithPort("8080/tcp").
+				WithStartupTimeout(2 * time.Minute),
+		},
+		Started: true,
+	})
+	if err != nil {
+		return h, fmt.Errorf("starting hatchet-api %s: %w\n%s", opts.Version, err, logTail(ctx, h.api))
 	}
 
 	host, err := h.lite.Host(ctx)
@@ -129,7 +170,12 @@ func StartHatchet(ctx context.Context, opts HatchetOptions) (h *Hatchet, err err
 	if err != nil {
 		return h, err
 	}
+	exchangePort, err := h.api.MappedPort(ctx, "8080/tcp")
+	if err != nil {
+		return h, err
+	}
 	h.APIURL = fmt.Sprintf("http://%s:%s", host, apiPort.Port())
+	h.ExchangeAPIURL = fmt.Sprintf("http://%s:%s", host, exchangePort.Port())
 	h.GRPCHostPort = fmt.Sprintf("%s:%s", host, grpcPort.Port())
 
 	h.AdminUserID, err = h.SQL(ctx, fmt.Sprintf(`SELECT id FROM "User" WHERE email='%s' AND "deletedAt" IS NULL`, adminEmail))
@@ -144,6 +190,37 @@ func StartHatchet(ctx context.Context, opts HatchetOptions) (h *Hatchet, err err
 		}
 	}
 	return h, nil
+}
+
+// liteConfig returns the files hatchet-lite generated in /config.
+func (h *Hatchet) liteConfig(ctx context.Context) ([]testcontainers.ContainerFile, error) {
+	code, out, err := h.lite.Exec(ctx, []string{"ls", "/config"}, tcexec.Multiplexed())
+	if err != nil {
+		return nil, err
+	}
+	b, err := io.ReadAll(out)
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("ls /config exited with %d: %s", code, b)
+	}
+	var files []testcontainers.ContainerFile
+	for _, name := range strings.Fields(string(b)) {
+		r, err := h.lite.CopyFileFromContainer(ctx, "/config/"+name)
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(r)
+		_ = r.Close()
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, testcontainers.ContainerFile{
+			Reader: bytes.NewReader(data), ContainerFilePath: "/config/" + name, FileMode: 0o644,
+		})
+	}
+	return files, nil
 }
 
 // logTail returns the last lines of the container log for error messages.
@@ -163,7 +240,7 @@ func logTail(ctx context.Context, c testcontainers.Container) string {
 // Terminate removes the containers and the network.
 func (h *Hatchet) Terminate(ctx context.Context) error {
 	var errs []error
-	for _, c := range []testcontainers.Container{h.lite, h.postgres} {
+	for _, c := range []testcontainers.Container{h.api, h.lite, h.postgres} {
 		if c != nil {
 			errs = append(errs, c.Terminate(ctx))
 		}

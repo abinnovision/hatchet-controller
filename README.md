@@ -19,7 +19,7 @@ A Kubernetes controller that lets app teams declare a [Hatchet](https://github.c
 
 The API group `hatchet-controller.abigroup.io/v1alpha1` has two namespaced resources:
 
-- `HatchetInstance` lives in the Hatchet namespace. It points at the Hatchet API, names the Hatchet user the controller acts as, and sets which namespaces may use it (`allowedNamespaces`, default `Same`). The controller publishes a public signing keyset for it as a Secret, which the Hatchet API reads at startup.
+- `HatchetInstance` lives in the Hatchet namespace. It points at a Hatchet API reserved for the controller, names the Hatchet user the controller acts as, and sets which namespaces may use it (`allowedNamespaces`, default `Same`). The controller publishes a public signing keyset for it as a Secret, which that API reads at startup.
 - `HatchetTenant` lives in an app namespace and references an instance with `instanceRef`. The controller creates the Hatchet tenant, mints a token and writes the worker Secret.
 
 The worker Secret is named `<name>-hatchet` (override with `secretName`) and holds the `HATCHET_CLIENT_*` variables a Hatchet SDK needs: token, tenant ID, host and port, server URL, and TLS settings.
@@ -28,11 +28,11 @@ The worker Secret is named `<name>-hatchet` (override with `secretName`) and hol
 
 Requires self-hosted Hatchet v0.84.0 or newer. Hatchet Cloud is not supported.
 
-The controller relies on Hatchet's control-plane exchange tokens, an undocumented internal feature that any Hatchet release may change. Each change is tested against Hatchet v0.84.0, v0.98.12 and the latest tracked release. Pin your Hatchet version and test upgrades outside production first.
+The controller relies on Hatchet's control-plane exchange tokens, an undocumented internal feature that any Hatchet release may change. Since v0.118.0, Hatchet refuses user login on any API that accepts exchange tokens, so the controller needs its own Hatchet API (step 4). Each change is tested against Hatchet v0.84.0, v0.98.12 and the latest tracked release. Pin your Hatchet version and test upgrades outside production first.
 
 ## Getting started
 
-All steps can be applied in a single GitOps sync. The Hatchet API waits for the keyset Secret before it starts.
+All steps can be applied in a single GitOps sync. The controller's Hatchet API waits for the keyset Secret before it starts.
 
 ### 1. Install the controller
 
@@ -58,7 +58,7 @@ apiVersion: hatchet-controller.abigroup.io/v1alpha1
 kind: HatchetInstance
 metadata: {name: hatchet, namespace: hatchet}
 spec:
-  apiURL: http://hatchet-api.hatchet.svc:8080
+  apiURL: http://hatchet-exchange-api.hatchet.svc:8080
   serviceUserID: <user uuid>
   worker:
     hostPort: hatchet-engine.hatchet.svc:7070
@@ -66,11 +66,13 @@ spec:
   allowedNamespaces: {from: Selector, selector: {matchLabels: {hatchet-access: "true"}}}
 ```
 
-The controller creates the Secret `<instance>-exchange-keyset` in the same namespace.
+`apiURL` is the Hatchet API from step 4. Workers also get it as `HATCHET_CLIENT_SERVER_URL`, and their tenant tokens work there. With `spec.networkPolicy`, `apiSelector` must match that API's pods. The controller creates the Secret `<instance>-exchange-keyset` in the same namespace.
 
-### 4. Let Hatchet trust the controller
+### 4. Run a Hatchet API for the controller
 
-Add these variables to the Hatchet API container. See `config/samples/hatchet-api-patch.yaml` for a full patch.
+Run a second Hatchet API next to your existing one, with the same configuration and database, and expose it with an internal Service. Add these variables to that API only. Your users keep the existing API, because Hatchet v0.118.0 and newer refuse password, OAuth and session login on any API that accepts exchange tokens. If you set these variables on your existing API before, remove them there. See `config/samples/hatchet-exchange-api.yaml` for a template.
+
+With `hatchet-lite`, run the `hatchet-api` image of the same version with lite's generated `/config` and `SERVER_MSGQUEUE_KIND=postgres`. `test/e2e/testdata/hatchet.yaml` runs it as a second container in the lite pod.
 
 ```yaml
 env:
@@ -189,7 +191,7 @@ Managing a `HatchetInstance` amounts to Hatchet root access, so that role is not
 ## Deletion
 
 - Deleting a `HatchetTenant` revokes its tokens, deletes its webhooks and removes the worker Secret. The tenant itself stays in Hatchet, which has no delete API.
-- Deleting a `HatchetInstance` removes its signing key, and the Hatchet API will not start again until exchange tokens are disabled, or a new instance is created and the API restarted. Protect GitOps-managed instances with `argocd.argoproj.io/sync-options: Delete=false` or `kustomize.toolkit.fluxcd.io/prune: disabled`.
+- Deleting a `HatchetInstance` removes its signing key, and the controller's Hatchet API will not start again until a new instance is created and that API restarted. Protect GitOps-managed instances with `argocd.argoproj.io/sync-options: Delete=false` or `kustomize.toolkit.fluxcd.io/prune: disabled`.
 - If you uninstall the controller while resources remain, clear their finalizers with `kubectl patch <resource> --type merge -p '{"metadata":{"finalizers":null}}'`.
 
 ## Releases
