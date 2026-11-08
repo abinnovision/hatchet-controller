@@ -108,7 +108,7 @@ func testForeignKeysetJWTGets403(t *testing.T, s *suite) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := hatchet.New(s.hatchet.APIURL, signer, s.instance.Spec.ServiceUserID, http.DefaultClient)
+	c := hatchet.New(s.hatchet.ExchangeAPIURL, signer, s.instance.Spec.ServiceUserID, http.DefaultClient)
 	_, err = c.CreateTenant(context.Background(), "foreign", "foreign-"+rand.String(8))
 	var herr *hatchet.Error
 	if !errors.As(err, &herr) || herr.StatusCode != http.StatusForbidden || !errors.Is(err, hatchet.ErrUnauthorized) {
@@ -174,7 +174,7 @@ func testTenantCreatesSecretWithWorkingToken(t *testing.T, s *suite) {
 	want := map[string]string{
 		"HATCHET_CLIENT_TENANT_ID":    tenant.Status.TenantID,
 		"HATCHET_CLIENT_HOST_PORT":    s.hatchet.GRPCHostPort,
-		"HATCHET_CLIENT_SERVER_URL":   s.hatchet.APIURL,
+		"HATCHET_CLIENT_SERVER_URL":   s.hatchet.ExchangeAPIURL,
 		"HATCHET_CLIENT_TLS_STRATEGY": "none",
 	}
 	for k, v := range want {

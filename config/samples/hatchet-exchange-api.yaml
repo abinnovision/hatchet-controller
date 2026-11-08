@@ -1,0 +1,46 @@
+# Template for a Hatchet API that only the controller uses. Hatchet v0.118+ refuses user login on an
+# API that accepts exchange tokens, so these variables stay off the user-facing API. Not applyable as
+# is: fill in the marked parts from your existing Hatchet API Deployment. The keyset Secret is created
+# by the controller for the HatchetInstance named "hatchet".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hatchet-exchange-api
+  namespace: hatchet
+spec:
+  selector:
+    matchLabels: {app: hatchet-exchange-api}
+  template:
+    metadata:
+      labels: {app: hatchet-exchange-api}
+    spec:
+      containers:
+        - name: hatchet-exchange-api
+          # The same Hatchet version as your other Hatchet components.
+          image: ghcr.io/hatchet-dev/hatchet/hatchet-api:<hatchet version>
+          # Copy envFrom, env (DATABASE_URL, encryption and auth keys) and config volumes from your
+          # Hatchet API Deployment, then add:
+          env:
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ENABLED
+              value: "true"
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_JWT_PUBLIC_KEYSET
+              valueFrom:
+                secretKeyRef:
+                  name: hatchet-exchange-keyset
+                  key: keyset
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_ISSUER
+              value: hatchet-controller
+            - name: SERVER_AUTH_CONTROL_PLANE_EXCHANGE_TOKEN_AUDIENCE
+              value: hatchet
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hatchet-exchange-api
+  namespace: hatchet
+spec:
+  selector: {app: hatchet-exchange-api}
+  ports:
+    - port: 8080
