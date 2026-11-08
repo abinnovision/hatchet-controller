@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,6 +30,24 @@ const (
 	adminEmail    = "admin@example.com"
 	adminPassword = "Admin123!!"
 )
+
+// HatchetVersions returns the hatchet-lite tags listed in test/hatchet-versions, oldest first.
+func HatchetVersions() ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(RepoRoot(), "test", "hatchet-versions"))
+	if err != nil {
+		return nil, err
+	}
+	var versions []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && !strings.HasPrefix(fields[0], "#") {
+			versions = append(versions, fields[0])
+		}
+	}
+	if len(versions) == 0 {
+		return nil, errors.New("test/hatchet-versions lists no versions")
+	}
+	return versions, nil
+}
 
 // Hatchet is a running hatchet-lite with its Postgres and a separate hatchet-api that accepts
 // exchange tokens. Hatchet v0.118+ refuses user login on an API that accepts exchange tokens, so

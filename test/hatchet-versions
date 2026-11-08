@@ -1,0 +1,8 @@
+# Hatchet releases the controller is tested against, oldest first. The first entry is the minimum
+# supported version; raising it is a breaking change. The rolling section is rewritten daily by the
+# Hatchet Compat workflow (hack/hatchet-versions.sh).
+v0.84.0    minimum supported version
+# rolling
+v0.101.32  newest patch of the newest minor released 90+ days ago
+v0.110.23  newest patch of the newest minor released 30+ days ago
+v0.119.2   newest release

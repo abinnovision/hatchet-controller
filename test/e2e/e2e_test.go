@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/abinnovision/hatchet-controller/internal/testenv"
 )
 
 const (
@@ -23,15 +25,24 @@ var (
 	kubeconfig string
 )
 
-// manifestImages returns the images referenced by testdata/hatchet.yaml.
-func manifestImages(t *testing.T) []string {
+// hatchetManifest returns testdata/hatchet.yaml with the newest version from test/hatchet-versions.
+func hatchetManifest(t *testing.T) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(root, "test", "e2e", "testdata", "hatchet.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	versions, err := testenv.HatchetVersions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(string(data), "${HATCHET_VERSION}", versions[len(versions)-1])
+}
+
+// manifestImages returns the images referenced by a manifest.
+func manifestImages(manifest string) []string {
 	var images []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(manifest, "\n") {
 		if image, ok := strings.CutPrefix(strings.TrimSpace(line), "image:"); ok {
 			images = append(images, strings.TrimSpace(image))
 		}
@@ -125,7 +136,8 @@ func TestSmoke(t *testing.T) {
 		}
 	})
 	tool(t, "kind", "create", "cluster", "--name", cluster, "--kubeconfig", kubeconfig, "--wait", "2m")
-	for _, image := range append([]string{img}, manifestImages(t)...) {
+	manifest := hatchetManifest(t)
+	for _, image := range append([]string{img}, manifestImages(manifest)...) {
 		if _, err := tryRun("", "docker", "image", "inspect", image); err != nil {
 			run(t, "", "docker", "pull", image)
 		}
@@ -158,7 +170,7 @@ func TestSmoke(t *testing.T) {
 	kubectl(t, "-n", "hatchet-controller-system", "rollout", "status", "deployment/hatchet-controller-manager", "--timeout=3m")
 
 	// The hatchet-lite pod waits on the keyset Secret the instance generates for its exchange-token API.
-	kubectl(t, "apply", "-f", "test/e2e/testdata/hatchet.yaml")
+	run(t, manifest, "kubectl", "apply", "-f", "-")
 	kubectl(t, "-n", "hatchet", "wait", "hatchetinstance/hatchet", "--for=condition=Ready", "--timeout=2m")
 	kubectl(t, "-n", "hatchet", "rollout", "status", "deployment/postgres", "--timeout=3m")
 	kubectl(t, "-n", "hatchet", "rollout", "status", "deployment/hatchet-lite", "--timeout=5m")

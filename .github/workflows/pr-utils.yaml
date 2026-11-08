@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - main
+    # edited reruns the checks when the PR title changes.
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   lint-commits:
@@ -13,6 +15,29 @@ jobs:
     steps:
       - name: Run linter
         uses: abinnovision/actions@run-commitlint-v1
+
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The squash commit takes the PR title, so a raised minimum Hatchet version needs a breaking title.
+      - name: Require a breaking title for a raised Hatchet minimum
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          minimum() { awk '!/^#/ && NF {print $1; exit}'; }
+          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          old=$(git show "$BASE_SHA:test/hatchet-versions" 2>/dev/null | minimum || true)
+          new=$(minimum < test/hatchet-versions)
+          if [[ -z "$old" || "$old" == "$new" || "$(printf '%s\n' "$old" "$new" | sort -V | tail -n1)" != "$new" ]]; then
+            exit 0
+          fi
+          if [[ ! "$TITLE" =~ ^[a-z]+(\([^\)]*\))?!: ]]; then
+            echo "::error::The minimum Hatchet version moves from $old to $new. Mark the PR title as breaking, e.g. 'feat!: require Hatchet $new'."
+            exit 1
+          fi
 
   dependabot:
     name: Dependabot automations

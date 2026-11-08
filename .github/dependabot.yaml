@@ -60,21 +60,3 @@ updates:
     groups:
       docker-images:
         patterns: ["*"]
-
-  - package-ecosystem: docker
-    directory: /test/e2e/testdata
-    open-pull-requests-limit: 5
-    schedule:
-      interval: daily
-    labels:
-      - dependencies
-    commit-message:
-      prefix: "test(deps)"
-    cooldown:
-      default-days: 5
-    ignore:
-      - dependency-name: postgres
-        update-types: ["version-update:semver-major"]
-    groups:
-      e2e-images:
-        patterns: ["*"]

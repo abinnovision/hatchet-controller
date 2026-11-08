@@ -38,3 +38,37 @@ jobs:
       image: hatchet-controller
       ghcr: true
       platforms: hatchet-controller,cross,linux/amd64,linux/arm64
+
+  release-notes:
+    name: Release notes
+    needs: ci
+    if: ${{ contains(needs.ci.outputs.releases, '"kind":"release"') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Appends the Hatchet versions the release was tested against, read from the tagged commit.
+      - name: Add tested Hatchet versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASES: ${{ needs.ci.outputs.releases }}
+        run: |
+          set -euo pipefail
+          for tag in $(jq -r '.[] | select(.kind == "release") | .tag' <<< "$RELEASES"); do
+            body=$(gh release view "$tag" --json body --jq .body)
+            if grep -q '^### Tested with Hatchet' <<< "$body"; then
+              continue
+            fi
+            versions=$(git show "$tag:test/hatchet-versions" 2>/dev/null | awk '!/^#/ && NF {print "- `" $1 "`"}' || true)
+            if [[ -z "$versions" ]]; then
+              continue
+            fi
+            printf '%s\n\n### Tested with Hatchet\n\n%s\n\nThe first version is the minimum supported version.\n' "$body" "$versions" > "$RUNNER_TEMP/notes.md"
+            gh release edit "$tag" --notes-file "$RUNNER_TEMP/notes.md"
+          done

@@ -26,9 +26,8 @@ import (
 )
 
 const (
-	defaultVersion = "v0.112.10"
-	timeout        = 2 * time.Minute
-	allowedLabel   = "hatchet-controller.abigroup.io/test-allowed"
+	timeout      = 2 * time.Minute
+	allowedLabel = "hatchet-controller.abigroup.io/test-allowed"
 )
 
 var env *testenv.Env
@@ -47,11 +46,15 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// versions returns the hatchet-lite tags from HATCHET_VERSIONS (comma or space separated).
-func versions() []string {
-	v := strings.Fields(strings.ReplaceAll(os.Getenv("HATCHET_VERSIONS"), ",", " "))
-	if len(v) == 0 {
-		return []string{defaultVersion}
+// versions returns the hatchet-lite tags from HATCHET_VERSIONS (comma or space separated),
+// defaulting to test/hatchet-versions.
+func versions(t *testing.T) []string {
+	if v := strings.Fields(strings.ReplaceAll(os.Getenv("HATCHET_VERSIONS"), ",", " ")); len(v) > 0 {
+		return v
+	}
+	v, err := testenv.HatchetVersions()
+	if err != nil {
+		t.Fatal(err)
 	}
 	return v
 }

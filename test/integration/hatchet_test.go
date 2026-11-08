@@ -27,7 +27,7 @@ import (
 )
 
 func TestHatchet(t *testing.T) {
-	for _, version := range versions() {
+	for _, version := range versions(t) {
 		t.Run(version, func(t *testing.T) {
 			s := setup(t, version)
 			for _, tc := range []struct {
