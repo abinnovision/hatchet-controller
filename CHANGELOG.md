@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0](https://github.com/abinnovision/hatchet-controller/compare/v0.3.0...v0.4.0) (2026-11-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* support Hatchet v0.118+ with a dedicated exchange-token API ([#28](https://github.com/abinnovision/hatchet-controller/issues/28))
+
+### Features
+
+* support Hatchet v0.118+ with a dedicated exchange-token API ([#28](https://github.com/abinnovision/hatchet-controller/issues/28)) ([0209425](https://github.com/abinnovision/hatchet-controller/commit/0209425627c59690ad788447b103d3521f3baa09))
+
+
+### Bug Fixes
+
+* **deps:** bump github.com/klauspost/compress to v1.20.2 ([#30](https://github.com/abinnovision/hatchet-controller/issues/30)) ([32d79a4](https://github.com/abinnovision/hatchet-controller/commit/32d79a4957de19031d5ccdf97d468d45515a8d8e))
+* **deps:** bump k8s.io/client-go from 0.37.1 to 0.37.2 in the go-dependencies group ([#27](https://github.com/abinnovision/hatchet-controller/issues/27)) ([70ebab3](https://github.com/abinnovision/hatchet-controller/commit/70ebab3c17e53f7dd790fecb02885ae3f620e6f0))
+* **deps:** bump the go-dependencies group with 2 updates ([#26](https://github.com/abinnovision/hatchet-controller/issues/26)) ([9fb2cd1](https://github.com/abinnovision/hatchet-controller/commit/9fb2cd1d67eb7ce40d7d8f89f38f46af5725e7bb))
+
 ## [0.3.0](https://github.com/abinnovision/hatchet-controller/compare/v0.2.0...v0.3.0) (2026-10-22)
 
 
