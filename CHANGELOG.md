@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/abinnovision/hatchet-controller/compare/v0.4.0...v0.4.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* bump Go to 1.26.11 for GO-2026-6859 ([#37](https://github.com/abinnovision/hatchet-controller/issues/37)) ([04de6a9](https://github.com/abinnovision/hatchet-controller/commit/04de6a93660d3328de08a075f81be17030b0d2a6))
+
 ## [0.4.0](https://github.com/abinnovision/hatchet-controller/compare/v0.3.0...v0.4.0) (2026-11-08)
 
 
