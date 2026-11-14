@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/abinnovision/hatchet-controller/compare/v0.4.1...v0.4.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **deps:** bump go.opentelemetry.io/otel/trace from 1.44.0 to 1.47.0 ([#39](https://github.com/abinnovision/hatchet-controller/issues/39)) ([503e44e](https://github.com/abinnovision/hatchet-controller/commit/503e44e19f1c59b3acbd3981560680399dc4005b))
+
 ## [0.4.1](https://github.com/abinnovision/hatchet-controller/compare/v0.4.0...v0.4.1) (2026-11-13)
 
 
