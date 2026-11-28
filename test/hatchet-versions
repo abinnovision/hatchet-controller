@@ -3,6 +3,6 @@
 # Hatchet Compat workflow (hack/hatchet-versions.sh).
 v0.84.0    minimum supported version
 # rolling
-v0.102.5   newest patch of the newest minor released 90+ days ago
-v0.112.18  newest patch of the newest minor released 30+ days ago
-v0.120.6   newest release
+v0.105.22  newest patch of the newest minor released 90+ days ago
+v0.115.1   newest patch of the newest minor released 30+ days ago
+v0.121.2   newest release
